@@ -37,6 +37,13 @@ log_flight_time:
       example: "2023-08-15 14:00:00"
       selector:
         datetime:
+    username:
+      name: Username
+      description: Specific IBA account username to log time for (required when multiple accounts are configured)
+      required: false
+      example: "your.iba.username"
+      selector:
+        text:
 
 find_tunnels:
   name: Find Tunnels

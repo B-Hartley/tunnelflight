@@ -92,6 +92,7 @@ This service allows you to add new flight time entries to your Tunnelflight logb
 | time | int | Yes | Flight time in minutes (1-120) |
 | comment | string | No | Optional comment for the entry |
 | entry_date | datetime | No | The date of the flight (defaults to current time) |
+| username | string | No | Specific username to log time for (if multiple accounts configured) |
 
 #### Example Service Call
 
@@ -102,6 +103,8 @@ data:
   time: 10  # 10 minutes of flight time
   comment: "Great session with Coach John"
   # entry_date is optional, defaults to current time
+  # username is optional, use it when you have multiple accounts configured
+  username: "johndoe"
 ```
 
 ### tunnelflight.find_tunnels
@@ -377,6 +380,19 @@ The integration supports multiple IBA accounts. Each account creates its own set
 For example, if you have accounts for "bruceh" and "sarahh", you'll get:
 - `sensor.iba_bruceh_total_flight_time`
 - `sensor.iba_sarahh_total_flight_time`
+
+When using services with multiple accounts, you can specify which account to use by adding the `username` parameter:
+
+```yaml
+service: tunnelflight.log_flight_time
+data:
+  tunnel_id: 248
+  time: 10
+  comment: "Weekly session"
+  username: "bruceh"  # Specify which account to use
+```
+
+If you don't specify a username, the service will use the first configured account.
 
 ## Troubleshooting
 

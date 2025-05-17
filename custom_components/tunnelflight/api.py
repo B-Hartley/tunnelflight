@@ -569,11 +569,20 @@ class TunnelflightApi:
                 user_data["formation_level_status"] = "Not Passed"
 
             # Validate that the data belongs to the correct user
-            fetched_username = user_data.get("screen_name", "").lower()
-            if fetched_username and fetched_username != self._username.lower():
-                _LOGGER.warning(
-                    f"Data mismatch! Fetched data for {fetched_username} but expected {self._username}"
-                )
+            fetched_username = user_data.get("screen_name", "")
+            if fetched_username:
+                # Do a more forgiving comparison
+                fetched_normalized = fetched_username.lower().replace(" ", "")
+                config_normalized = self._username.lower().replace(" ", "")
+
+                # Only warn if there's a significant mismatch
+                if not (
+                    fetched_normalized.startswith(config_normalized[:3])
+                    or config_normalized.startswith(fetched_normalized[:3])
+                ):
+                    _LOGGER.warning(
+                        f"Data mismatch! Fetched data for {fetched_username} but expected {self._username}"
+                    )
 
         # Add logbook entries to user data
         if logbook_entries:

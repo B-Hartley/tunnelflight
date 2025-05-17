@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import (
 
 from .const import DOMAIN, DEFAULT_NAME
 from .api import TunnelflightApi
+from .service_fix import register_coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ async def async_setup_entry(
     # Create a data coordinator to handle updates
     coordinator = TunnelflightCoordinator(hass, api)
     await coordinator.async_config_entry_first_refresh()
+    register_coordinator(entry.entry_id, coordinator)
 
     # Log the data we received to check if expiry dates are present
     if coordinator.data:
@@ -186,6 +188,8 @@ class TunnelflightCoordinator(DataUpdateCoordinator):
             update_interval=SCAN_INTERVAL,
         )
         self._api = api
+        # Store the API for use in services
+        self.api = api
 
     async def _async_update_data(self):
         """Fetch data from the API."""

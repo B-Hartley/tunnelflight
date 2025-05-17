@@ -3,9 +3,11 @@ import voluptuous as vol
 from datetime import datetime
 from homeassistant.helpers import config_validation as cv
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 from .api import TunnelflightApi
+from .service_fix import get_coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,10 +20,11 @@ SERVICE_REFRESH_DATA = "refresh_data"
 # Service schemas
 SERVICE_LOG_TIME_SCHEMA = vol.Schema(
     {
-        vol.Required("tunnel_id"): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
+        vol.Required("tunnel_id"): vol.All(vol.Coerce(int), vol.Range(min=1, max=1200)),
         vol.Required("time"): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
         vol.Optional("comment", default=""): cv.string,
         vol.Optional("entry_date"): cv.datetime,
+        vol.Optional("username"): cv.string,  # Added username parameter
     }
 )
 
@@ -43,6 +46,8 @@ SERVICE_REFRESH_DATA_SCHEMA = vol.Schema({})
 
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up services for the Tunnelflight integration."""
+
+    _LOGGER.info(f"Setting up Tunnelflight services in domain: {DOMAIN}")
 
     # Dictionary to store API instances
     api_instances = {}
@@ -166,30 +171,190 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         else:
             entry_date = int(datetime.now().timestamp())
 
-        # Get API instance for first config entry
-        api = None
-        for entry_id, entry_api in api_instances.items():
-            api = entry_api
-            break
+        # Get requested username if specified
+        requested_username = call.data.get("username")
+        _LOGGER.warning(
+            f"log_flight_time called with requested_username: {requested_username}"
+        )
 
-        if not api:
-            _LOGGER.error("No API instances available")
+        # Count number of configured entries
+        entry_count = len(hass.data.get(DOMAIN, {}))
+        _LOGGER.warning(f"Found {entry_count} configured entries")
+
+        # Initialize the API to use
+        api = None
+        selected_entry_id = None
+        selected_username = None  # Add this to track which username we actually use
+
+        # If multiple entries are configured but no username is specified, fail
+        if entry_count > 1 and not requested_username:
+            _LOGGER.error(
+                "Multiple Tunnelflight integrations configured but no username specified"
+            )
+            service_data = {
+                "title": "Tunnelflight Log Time Failed",
+                "message": "Multiple Tunnelflight accounts are configured. You must specify a username parameter to indicate which account to log time for.",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
             return
 
-        # Get tunnel name
+        # If a specific username is requested, find the matching API instance
+        if requested_username:
+            _LOGGER.warning(
+                f"Looking for entry matching requested_username: {requested_username}"
+            )
+            requested_username_norm = requested_username.lower().strip()
+
+            for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+                config_entry = hass.config_entries.async_get_entry(entry_id)
+                if config_entry:
+                    entry_username = config_entry.data.get("username", "")
+                    entry_username_norm = entry_username.lower().strip()
+
+                    _LOGGER.warning(
+                        f"Checking entry with username: {entry_username} (normalized: {entry_username_norm})"
+                    )
+
+                    # More flexible comparison - either exact match or username starts with
+                    if (
+                        entry_username_norm == requested_username_norm
+                        or entry_username_norm.startswith(requested_username_norm)
+                        or requested_username_norm.startswith(entry_username_norm)
+                    ):
+                        selected_entry_id = entry_id
+                        selected_username = (
+                            entry_username  # Store the actual username from config
+                        )
+
+                        # Get or create API instance using the credentials from this specific entry
+                        if entry_id not in api_instances:
+                            session = async_get_clientsession(hass)
+                            api_instances[entry_id] = TunnelflightApi(
+                                config_entry.data["username"],
+                                config_entry.data["password"],
+                                session,
+                            )
+                        api = api_instances[entry_id]
+                        _LOGGER.warning(
+                            f"Found matching account for username: {requested_username} -> {entry_username}"
+                        )
+                        break
+
+            # If requested username wasn't found, fail
+            if not api:
+                _LOGGER.error(
+                    f"Requested username '{requested_username}' not found in configured accounts"
+                )
+                service_data = {
+                    "title": "Tunnelflight Log Time Failed",
+                    "message": f"The specified username '{requested_username}' was not found in your configured Tunnelflight accounts.",
+                }
+                await hass.services.async_call(
+                    "persistent_notification", "create", service_data
+                )
+                return
+        else:
+            # If only one entry is configured, use it
+            if entry_count == 1:
+                _LOGGER.warning("Using the only configured account")
+                for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+                    config_entry = hass.config_entries.async_get_entry(entry_id)
+                    if config_entry:
+                        selected_entry_id = entry_id
+                        selected_username = config_entry.data.get(
+                            "username"
+                        )  # Store the actual username
+                        # Get or create API instance
+                        if entry_id not in api_instances:
+                            session = async_get_clientsession(hass)
+                            api_instances[entry_id] = TunnelflightApi(
+                                config_entry.data["username"],
+                                config_entry.data["password"],
+                                session,
+                            )
+                        api = api_instances[entry_id]
+                        _LOGGER.warning(
+                            f"Using the only configured account: {selected_username}"
+                        )
+                        break
+
+        if not api:
+            _LOGGER.error(
+                "No valid API instance available. Make sure you've configured the integration."
+            )
+            service_data = {
+                "title": "Tunnelflight Log Time Failed",
+                "message": f"No valid account found. Please check your configuration.{' Username: ' + requested_username if requested_username else ''}",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
+            return
+
+        # Get tunnel name - make sure we're using the same API instance
         tunnel_name = await get_tunnel_name(tunnel_id, api)
 
         try:
             _LOGGER.debug(
-                f"Attempting to log {time_minutes} minutes at {tunnel_name} with comment: {comment}"
+                f"Attempting to log {time_minutes} minutes at {tunnel_name} with comment: {comment} for user {selected_username}"
             )
 
-            # Ensure user is logged in
+            # Ensure user is logged in - CRITICAL to ensure we're using the correct account's session
+            # First check if already logged in
             if not api._logged_in:
-                await api.login()
-                if not api._logged_in:
-                    _LOGGER.error("Failed to log time: Login failed")
+                login_success = await api.login()
+                if not login_success:
+                    _LOGGER.error(
+                        f"Failed to log time: Login failed for user {selected_username}"
+                    )
+                    service_data = {
+                        "title": "Tunnelflight Log Time Failed",
+                        "message": f"Login failed for {selected_username}. Please check your credentials.",
+                    }
+                    await hass.services.async_call(
+                        "persistent_notification", "create", service_data
+                    )
                     return
+
+            # Force session renewal to ensure we're using the most current session
+            # This is important especially if multiple accounts are configured
+            await api._clear_session()
+            login_success = await api.login()
+            if not login_success:
+                _LOGGER.error(f"Failed to renew session for user {selected_username}")
+                service_data = {
+                    "title": "Tunnelflight Log Time Failed",
+                    "message": f"Failed to establish a fresh session for {selected_username}.",
+                }
+                await hass.services.async_call(
+                    "persistent_notification", "create", service_data
+                )
+                return
+
+            # Log current session state
+            _LOGGER.debug(
+                f"Using API instance with username {api._username} and logged_in={api._logged_in}"
+            )
+
+            # Confirm session validity before proceeding
+            # Try to fetch something simple to verify session
+            member_check = await api._fetch_api_endpoint(
+                "https://www.tunnelflight.com/user/module-type/flyer-card/"
+            )
+            if not member_check or not member_check.get("member_id"):
+                _LOGGER.error(
+                    f"Session verification failed for {selected_username} - could not fetch member data"
+                )
+                service_data = {
+                    "title": "Tunnelflight Log Time Failed",
+                    "message": f"Session verification failed for {selected_username}. Please try again later.",
+                }
+                await hass.services.async_call(
+                    "persistent_notification", "create", service_data
+                )
+                return
 
             # Prepare log entry data
             log_data = {
@@ -203,6 +368,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             }
 
             # Post the logbook entry
+            _LOGGER.warning(
+                f"Sending log time request for {selected_username} to {api._username}'s session"
+            )
             async with api._session.post(
                 "https://www.tunnelflight.com/account/logbook/member/time/",
                 json=log_data,
@@ -221,12 +389,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                             in str(response_data.get("message", "")).lower()
                         ):
                             _LOGGER.info(
-                                f"Successfully logged {time_minutes} minutes at {tunnel_name}"
+                                f"Successfully logged {time_minutes} minutes at {tunnel_name} for {selected_username}"
                             )
 
                             # Update the state of the main sensor with the new total time
-                            for entry_id in hass.data.get(DOMAIN, {}):
-                                state_obj = hass.states.get(f"sensor.{DOMAIN}")
+                            if selected_entry_id:
+                                state_obj = hass.states.get(
+                                    f"sensor.{DOMAIN}_{selected_username}"
+                                )
                                 if state_obj:
                                     # Calculate new total time
                                     try:
@@ -268,7 +438,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
                                         # Update the state
                                         hass.states.async_set(
-                                            f"sensor.{DOMAIN}",
+                                            f"sensor.{DOMAIN}_{selected_username}",
                                             state_obj.state,
                                             old_attrs,
                                         )
@@ -276,12 +446,38 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                                         _LOGGER.warning(
                                             f"Error updating sensor state: {e}"
                                         )
+
+                            # Force refresh coordinator data
+                            coordinator = get_coordinator(selected_entry_id)
+                            if coordinator:
+                                await coordinator.async_refresh()
+                                _LOGGER.debug(
+                                    f"Refreshed data for {selected_username} after logging time"
+                                )
+
+                            # Show success notification - only use selected_username for consistency
+                            service_data = {
+                                "title": "Flight Time Logged Successfully",
+                                "message": f"Logged {time_minutes} minutes at {tunnel_name} for user {selected_username}",
+                            }
+                            await hass.services.async_call(
+                                "persistent_notification", "create", service_data
+                            )
                         else:
                             _LOGGER.error(
-                                f"Failed to log time: {response_data.get('message', 'Unknown error')}"
+                                f"Failed to log time for {selected_username}: {response_data.get('message', 'Unknown error')}"
+                            )
+                            service_data = {
+                                "title": "Flight Time Logging Failed",
+                                "message": f"Error for {selected_username}: {response_data.get('message', 'Unknown error')}",
+                            }
+                            await hass.services.async_call(
+                                "persistent_notification", "create", service_data
                             )
                     except Exception as e:
-                        _LOGGER.error(f"Error parsing log time response: {e}")
+                        _LOGGER.error(
+                            f"Error parsing log time response for {selected_username}: {e}"
+                        )
                         try:
                             # Log the raw response text
                             content = await response.text()
@@ -292,34 +488,88 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                                 _LOGGER.info(
                                     f"Assuming success based on response text for {time_minutes} minutes at {tunnel_name}"
                                 )
+                                service_data = {
+                                    "title": "Flight Time Probably Logged",
+                                    "message": f"Assuming success for {time_minutes} minutes at {tunnel_name} for {selected_username}",
+                                }
+                                await hass.services.async_call(
+                                    "persistent_notification", "create", service_data
+                                )
                                 return
                         except:
                             pass
+
+                        service_data = {
+                            "title": "Flight Time Logging Failed",
+                            "message": f"Error processing response for {selected_username}: {e}",
+                        }
+                        await hass.services.async_call(
+                            "persistent_notification", "create", service_data
+                        )
                 else:
-                    _LOGGER.error(f"Failed to log time: HTTP status {response.status}")
+                    _LOGGER.error(
+                        f"Failed to log time for {selected_username}: HTTP status {response.status}"
+                    )
                     try:
                         # Try to get the error message from the response
                         content = await response.text()
                         _LOGGER.debug(f"Error response: {content[:200]}")
+                        service_data = {
+                            "title": "Flight Time Logging Failed",
+                            "message": f"HTTP Error {response.status} for {selected_username}: {content[:200]}",
+                        }
+                        await hass.services.async_call(
+                            "persistent_notification", "create", service_data
+                        )
                     except:
-                        pass
+                        service_data = {
+                            "title": "Flight Time Logging Failed",
+                            "message": f"HTTP Error {response.status} for {selected_username}",
+                        }
+                        await hass.services.async_call(
+                            "persistent_notification", "create", service_data
+                        )
 
         except Exception as e:
-            _LOGGER.error(f"Error logging flight time: {e}")
+            _LOGGER.error(f"Error logging flight time for {selected_username}: {e}")
+            service_data = {
+                "title": "Flight Time Logging Failed",
+                "message": f"Error for {selected_username}: {e}",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
 
     async def find_tunnels(call: ServiceCall) -> None:
         """Service to find tunnels by name or country."""
         search_term = call.data.get("search_term", "").lower()
         country = call.data.get("country", "").lower()
 
-        # Get API instance for first config entry
+        # Get API instance - create only once
         api = None
-        for entry_id, entry_api in api_instances.items():
-            api = entry_api
-            break
+        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+            config_entry = hass.config_entries.async_get_entry(entry_id)
+            if config_entry:
+                # Get or create API instance
+                if entry_id not in api_instances:
+                    session = async_get_clientsession(hass)
+                    api_instances[entry_id] = TunnelflightApi(
+                        config_entry.data["username"],
+                        config_entry.data["password"],
+                        session,
+                    )
+                api = api_instances[entry_id]
+                break
 
         if not api:
             _LOGGER.error("No API instances available")
+            service_data = {
+                "title": "Tunnelflight Error",
+                "message": "No configured accounts found. Please set up the integration first.",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
             return
 
         # Ensure tunnels are loaded in cache
@@ -328,6 +578,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         if not tunnels_cache:
             _LOGGER.error("Failed to fetch tunnels list")
+            service_data = {
+                "title": "Tunnelflight Error",
+                "message": "Failed to fetch tunnels list. Please check logs for details.",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
             return
 
         # Filter tunnels based on search criteria
@@ -392,14 +649,31 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def list_countries(call: ServiceCall) -> None:
         """Service to list all countries with wind tunnels."""
-        # Get API instance for first config entry
+        # Get API instance - create only once
         api = None
-        for entry_id, entry_api in api_instances.items():
-            api = entry_api
-            break
+        for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
+            config_entry = hass.config_entries.async_get_entry(entry_id)
+            if config_entry:
+                # Get or create API instance
+                if entry_id not in api_instances:
+                    session = async_get_clientsession(hass)
+                    api_instances[entry_id] = TunnelflightApi(
+                        config_entry.data["username"],
+                        config_entry.data["password"],
+                        session,
+                    )
+                api = api_instances[entry_id]
+                break
 
         if not api:
             _LOGGER.error("No API instances available")
+            service_data = {
+                "title": "Tunnelflight Error",
+                "message": "No configured accounts found. Please set up the integration first.",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
             return
 
         # Ensure tunnels are loaded in cache
@@ -408,6 +682,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         if not tunnels_cache:
             _LOGGER.error("Failed to fetch tunnels list")
+            service_data = {
+                "title": "Tunnelflight Error",
+                "message": "Failed to fetch tunnels list. Please check logs for details.",
+            }
+            await hass.services.async_call(
+                "persistent_notification", "create", service_data
+            )
             return
 
         # Extract unique countries from the database
@@ -443,83 +724,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         error_count = 0
 
         # Loop through all API instances and refresh their data
-        for entry_id, api in api_instances.items():
+        for entry_id in hass.data.get(DOMAIN, {}):
             try:
-                # Check if we need to login (don't force it)
-                if not api._logged_in:
-                    login_success = await api.login()
-                    if not login_success:
-                        _LOGGER.error(
-                            f"Failed to login during refresh for entry {entry_id}"
-                        )
-                        error_count += 1
-                        continue
-                else:
-                    _LOGGER.debug(
-                        f"Already logged in for entry {entry_id}, using existing session"
-                    )
-
-                # Fetch user data
-                user_data = await api.get_user_data()
-                if not user_data:
-                    _LOGGER.error(
-                        f"Failed to fetch user data during refresh for entry {entry_id}"
-                    )
-
-                    # Try to re-login if the data fetch failed, in case session expired
-                    _LOGGER.debug(f"Attempting to re-login for entry {entry_id}")
-                    api._logged_in = False
-                    login_success = await api.login()
-                    if not login_success:
-                        _LOGGER.error(
-                            f"Re-login failed during refresh for entry {entry_id}"
-                        )
-                        error_count += 1
-                        continue
-
-                    # Try to fetch user data again after re-login
-                    user_data = await api.get_user_data()
-                    if not user_data:
-                        _LOGGER.error(
-                            f"Failed to fetch user data even after re-login for entry {entry_id}"
-                        )
-                        error_count += 1
-                        continue
-
                 # Get the coordinator for this entry
-                coordinator = None
-                for platform in ["sensor", "binary_sensor"]:
-                    platform_data = hass.data.get(f"{DOMAIN}_{platform}", {})
-                    if entry_id in platform_data and hasattr(
-                        platform_data[entry_id], "async_refresh"
-                    ):
-                        coordinator = platform_data[entry_id]
-                        break
+                coordinator = get_coordinator(entry_id)
 
-                # Update the coordinator with new data if found
-                if coordinator:
-                    coordinator.data = user_data
+                if coordinator and hasattr(coordinator, "async_refresh"):
                     await coordinator.async_refresh()
                     _LOGGER.debug(
                         f"Updated coordinator with fresh data for entry {entry_id}"
                     )
+                    success_count += 1
+                    _LOGGER.info(f"Successfully refreshed data for entry {entry_id}")
                 else:
-                    # Manually update the state of the sensors
-                    username = api._username
-                    state_obj = hass.states.get(f"sensor.{DOMAIN}_{username}")
-                    if state_obj:
-                        # Update with the current state and new attributes
-                        hass.states.async_set(
-                            f"sensor.{DOMAIN}_{username}", state_obj.state, user_data
-                        )
-                        _LOGGER.debug(f"Manually updated sensor state for {username}")
-
-                # Clear the tunnels cache to force a fresh fetch next time
-                tunnels_cache.clear()
-
-                success_count += 1
-                _LOGGER.info(f"Successfully refreshed data for entry {entry_id}")
-
+                    _LOGGER.error(f"No coordinator found for entry {entry_id}")
+                    error_count += 1
             except Exception as e:
                 _LOGGER.error(f"Error refreshing data for entry {entry_id}: {e}")
                 error_count += 1
@@ -560,17 +779,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_REFRESH_DATA, refresh_data, schema=SERVICE_REFRESH_DATA_SCHEMA
     )
 
-    # Store API instances
-    for entry_id in hass.data.get(DOMAIN, {}):
-        config_entry = hass.config_entries.async_get_entry(entry_id)
-        if config_entry:
-            username = config_entry.data["username"]
-            password = config_entry.data["password"]
-
-            # Create a new API instance or reuse existing one
-            api = TunnelflightApi(username, password, None)
-            api_instances[entry_id] = api
-            _LOGGER.debug(f"Added API instance for {username} with entry_id {entry_id}")
+    # Log that services have been registered
+    _LOGGER.warning(
+        f"Successfully registered Tunnelflight services: {SERVICE_LOG_TIME}, {SERVICE_FIND_TUNNELS}, {SERVICE_LIST_COUNTRIES}, {SERVICE_REFRESH_DATA}"
+    )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
