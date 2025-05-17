@@ -2,11 +2,11 @@
   "domain": "tunnelflight",
   "name": "IBA Tunnelflight",
   "codeowners": ["@B-Hartley"],
-  "config_flow": true
+  "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/B-Hartley/tunnelflight",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/B-Hartley/tunnelflight/issues",
   "requirements": [],
-  "version": "1.0.0",
+  "version": "1.0.0"
 }
