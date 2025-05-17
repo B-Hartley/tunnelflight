@@ -307,6 +307,58 @@ class TunnelflightApi:
             _LOGGER.error(f"Error fetching skills levels for {self._username}: {e}")
             return None
 
+    async def get_logbook_entries(self):
+        """Get the user's logbook entries containing skills data."""
+        if not self._logged_in:
+            _LOGGER.debug(f"Not logged in, attempting login first for {self._username}")
+            success = await self.login()
+            if not success:
+                _LOGGER.error(
+                    f"Login failed, cannot fetch logbook for {self._username}"
+                )
+                return None
+
+        # First get the member ID from the flyer-card endpoint
+        flyer_card_data = await self._fetch_api_endpoint(
+            "https://www.tunnelflight.com/user/module-type/flyer-card/"
+        )
+        if not flyer_card_data or "member_id" not in flyer_card_data:
+            _LOGGER.error(f"Could not get member ID for {self._username}")
+            return None
+
+        member_id = flyer_card_data.get("member_id")
+
+        # Construct the logbook URL with the member ID
+        logbook_url = f"https://www.tunnelflight.com/account/logbook/member/skills/open-suspended/{member_id}"
+
+        _LOGGER.warning(
+            f"Using member_id: {member_id} to fetch logbook entries from {logbook_url}"
+        )
+
+        try:
+            async with self._session.get(
+                logbook_url, headers=self._ajax_headers
+            ) as response:
+                # Accept both 200 OK and 201 Created as valid responses
+                if response.status not in (200, 201):
+                    _LOGGER.error(f"Failed to fetch logbook entries: {response.status}")
+                    return None
+
+                try:
+                    data = await response.json()
+                    _LOGGER.warning(
+                        f"Fetched {len(data) if data else 'no'} logbook entries"
+                    )
+                    return data
+                except Exception as e:
+                    _LOGGER.error(f"Error parsing logbook entries: {e}")
+                    content = await response.text()
+                    _LOGGER.warning(f"Raw response content: {content[:200]}")
+                    return None
+        except Exception as e:
+            _LOGGER.error(f"Error fetching logbook entries: {e}")
+            return None
+
     async def get_user_data(self):
         """Get user data from both API endpoints and combine them."""
         flyer_card_data = await self._fetch_api_endpoint(
@@ -325,6 +377,9 @@ class TunnelflightApi:
 
         # Fetch the skills levels data
         skills_data = await self._fetch_skills_levels()
+
+        # Fetch the logbook entries data
+        logbook_entries = await self.get_logbook_entries()
 
         # Combine all the data
         user_data = {}
@@ -519,6 +574,34 @@ class TunnelflightApi:
                 _LOGGER.warning(
                     f"Data mismatch! Fetched data for {fetched_username} but expected {self._username}"
                 )
+
+        # Add logbook entries to user data
+        if logbook_entries:
+            user_data["logbook_entries"] = logbook_entries
+
+            # Process the entries to get a summary of skills by category
+            skills_by_category = {}
+
+            for entry in logbook_entries:
+                cat_name = entry.get("cat_name", "Unknown")
+                skill_name = entry.get("skill_name", "Unknown")
+                status = entry.get("status", "Unknown")
+
+                if cat_name not in skills_by_category:
+                    skills_by_category[cat_name] = []
+
+                skills_by_category[cat_name].append(
+                    {
+                        "id": entry.get("id"),
+                        "name": skill_name,
+                        "status": status,
+                        "entry_date": entry.get("entry_date"),
+                        "approval_date": entry.get("approval_date"),
+                        "instructor": entry.get("instructor_name"),
+                    }
+                )
+
+            user_data["skills_by_category"] = skills_by_category
 
         return user_data
 

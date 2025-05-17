@@ -9,6 +9,8 @@ This integration connects to the International Bodyflight Association (IBA) webs
 - Track total flight time
 - Monitor payment and currency expiry dates
 - Support for multiple IBA accounts in one Home Assistant instance
+- Log flight time directly from Home Assistant
+- Search for tunnels using a dynamic database
 
 ## Configuration
 
@@ -26,6 +28,42 @@ Each IBA account will create:
 - Skill level sensors (Static, Dynamic, Formation)
 - Currency status binary sensor
 - Payment status binary sensor
+
+## Services
+
+The integration provides two services:
+
+### Log Flight Time
+
+Log new flight time entries to your Tunnelflight account:
+
+```yaml
+service: tunnelflight.log_flight_time
+data:
+  tunnel_id: 248  # Basingstoke iFLY
+  time: 10  # Minutes (1-120)
+  comment: "Great session!"
+```
+
+### Find Tunnels
+
+Search for wind tunnels by name or location:
+
+```yaml
+service: tunnelflight.find_tunnels
+data:
+  search_term: "manchester"
+  country: "united kingdom"
+```
+
+To list all available countries:
+
+```yaml
+service: tunnelflight.find_tunnels
+data:
+  list_countries: true
+
+Results appear as a persistent notification in Home Assistant.
 
 ## Links
 

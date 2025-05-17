@@ -4,6 +4,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .logbook_service import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +26,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Use the non-deprecated async_forward_entry_setups method
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Set up services after first entry is loaded
+    if len(hass.data[DOMAIN]) == 1:
+        await async_setup_services(hass)
+
     return True
 
 
@@ -34,5 +39,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+
+        # Unload services if this was the last entry
+        if not hass.data[DOMAIN]:
+            await async_unload_services(hass)
 
     return unload_ok

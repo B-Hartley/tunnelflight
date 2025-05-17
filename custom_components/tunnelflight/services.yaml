@@ -1,0 +1,65 @@
+# Define services for tunnelflight integration
+log_flight_time:
+  name: Log Flight Time
+  description: Add a new flight time entry to your Tunnelflight logbook
+  fields:
+    tunnel_id:
+      name: Tunnel ID
+      description: The ID of the tunnel where you flew
+      required: true
+      example: 248
+      selector:
+        number:
+          min: 1
+          mode: box
+    time:
+      name: Flight Time
+      description: Flight time in minutes (1-120)
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: min
+          mode: slider
+          step: 1
+    comment:
+      name: Comment
+      description: Optional comment for the entry
+      required: false
+      example: "Great session with Coach Mark"
+      selector:
+        text:
+    entry_date:
+      name: Entry Date
+      description: The date of the flight (defaults to current time)
+      required: false
+      example: "2023-08-15 14:00:00"
+      selector:
+        datetime:
+
+find_tunnels:
+  name: Find Tunnels
+  description: Search for wind tunnels by name, city, or country
+  fields:
+    search_term:
+      name: Search Term
+      description: Search term to look for in tunnel name or city
+      required: false
+      example: "basingstoke"
+      selector:
+        text:
+    country:
+      name: Country
+      description: Filter results by country
+      required: false
+      example: "united kingdom"
+      selector:
+        text:
+    list_countries:
+      name: List Countries
+      description: Set to true to list all available countries with tunnels
+      required: false
+      default: false
+      selector:
+        boolean:

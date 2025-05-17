@@ -150,6 +150,27 @@ async def async_setup_entry(
             )
         )
 
+        # Create skills category sensors if we have logbook data
+        if "skills_by_category" in coordinator.data:
+            skills_by_category = coordinator.data.get("skills_by_category", {})
+
+            for category_name, skills_data in skills_by_category.items():
+                if skills_data:  # Only create sensors for categories with data
+                    entities.append(
+                        TunnelflightSkillsCategorySensor(
+                            coordinator,
+                            name,
+                            entry.entry_id,
+                            username,
+                            category_name,
+                            skills_data,
+                        )
+                    )
+
+                    _LOGGER.debug(
+                        f"Created skills sensor for category: {category_name} with {len(skills_data)} skills"
+                    )
+
     async_add_entities(entities, False)  # False = don't update entities right away
 
 
@@ -798,3 +819,85 @@ class TunnelflightSkillSensor(CoordinatorEntity, SensorEntity):
     def icon(self):
         """Return the icon of the sensor."""
         return self._icon
+
+
+class TunnelflightSkillsCategorySensor(CoordinatorEntity, SensorEntity):
+    """Representation of an IBA Tunnelflight skills category sensor."""
+
+    def __init__(
+        self, coordinator, name, entry_id, username, category_name, skills_data
+    ):
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._name = f"{name} {category_name} Skills"
+        self._entry_id = entry_id
+        self._unique_id = (
+            f"tunnelflight_{username}_skills_{category_name.lower().replace(' ', '_')}"
+        )
+        self._category_name = category_name
+        self._skills_data = skills_data
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return self._name
+
+    @property
+    def unique_id(self):
+        """Return a unique ID."""
+        return self._unique_id
+
+    @property
+    def state(self):
+        """Return the state of the sensor."""
+        # Count how many skills are completed in this category
+        completed_count = sum(
+            1 for skill in self._skills_data if skill["status"] == "open"
+        )
+        return f"{completed_count}/{len(self._skills_data)}"
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        attributes = {
+            "category": self._category_name,
+            "skills_count": len(self._skills_data),
+            "skills": [],
+        }
+
+        # Add each skill as an attribute
+        for skill in self._skills_data:
+            attributes["skills"].append(
+                {
+                    "name": skill["name"],
+                    "status": skill["status"],
+                    "completion_date": datetime.fromtimestamp(
+                        skill["approval_date"]
+                    ).strftime("%Y-%m-%d")
+                    if skill.get("approval_date")
+                    else None,
+                    "instructor": skill.get("instructor", ""),
+                }
+            )
+
+        return attributes
+
+    @property
+    def device_info(self):
+        """Return device information about this entity."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": self._name.split(" ")[0],  # Use base name
+            "manufacturer": "International Bodyflight Association",
+            "model": "Tunnelflight Account",
+        }
+
+    @property
+    def icon(self):
+        """Return the icon of the sensor."""
+        return "mdi:certificate"
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        """Return if the entity should be enabled by default."""
+        return False  # Disabled by default as requested

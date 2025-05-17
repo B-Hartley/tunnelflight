@@ -75,6 +75,13 @@
           "hours_decimal": "Hours (decimal)",
           "total_minutes": "Total Minutes"
         }
+      },
+      "tunnelflight_skills": {
+        "state_attributes": {
+          "category": "Category",
+          "skills_count": "Skills Count",
+          "skills": "Skills"
+        }
       }
     },
     "binary_sensor": {
@@ -96,6 +103,48 @@
         "state_attributes": {
           "expiry_date": "Expiry Date",
           "days_remaining": "Days Remaining"
+        }
+      }
+    }
+  },
+  "services": {
+    "log_flight_time": {
+      "name": "Log Flight Time",
+      "description": "Add a new flight time entry to your Tunnelflight logbook",
+      "fields": {
+        "tunnel_id": {
+          "name": "Tunnel ID",
+          "description": "The ID of the tunnel where you flew"
+        },
+        "time": {
+          "name": "Flight Time",
+          "description": "Flight time in minutes (1-120)"
+        },
+        "comment": {
+          "name": "Comment",
+          "description": "Optional comment for the entry"
+        },
+        "entry_date": {
+          "name": "Entry Date",
+          "description": "The date of the flight (defaults to current time)"
+        }
+      }
+    },
+    "find_tunnels": {
+      "name": "Find Tunnels",
+      "description": "Search for wind tunnels by name, city, or country",
+      "fields": {
+        "search_term": {
+          "name": "Search Term",
+          "description": "Search term to look for in tunnel name or city"
+        },
+        "country": {
+          "name": "Country",
+          "description": "Filter results by country"
+        },
+        "list_countries": {
+          "name": "List Countries",
+          "description": "Set to true to list all available countries with tunnels"
         }
       }
     }
