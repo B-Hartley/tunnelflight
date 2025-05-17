@@ -190,15 +190,35 @@ class TunnelflightCoordinator(DataUpdateCoordinator):
         self._api = api
         # Store the API for use in services
         self.api = api
+        # Internal cache for data
+        self._cached_data = {}  # Dict to store data by endpoint
 
     async def _async_update_data(self):
         """Fetch data from the API."""
         try:
+            _LOGGER.debug("Starting coordinator data refresh")
+
+            # Use the ETags system in the API to check if data has changed
             data = await self._api.get_user_data()
-            _LOGGER.debug(f"Updated data from API: {data}")
-            return data
+
+            if data:
+                _LOGGER.debug("Successfully updated user data")
+                # If we got a 304 response, the API method should have logged it
+                return data
+            else:
+                # If we didn't get data but have cached data, use that as a fallback
+                if hasattr(self, "data") and self.data:
+                    _LOGGER.warning("Using existing data as no new data was received")
+                    return self.data
+
+                _LOGGER.error("No data available and no cached data")
+                raise Exception("Failed to fetch data and no cache available")
         except Exception as e:
             _LOGGER.error(f"Error updating data: {e}")
+            # Return existing data if available, otherwise raise the exception
+            if hasattr(self, "data") and self.data:
+                _LOGGER.warning(f"Using existing data after error: {e}")
+                return self.data
             raise
 
 

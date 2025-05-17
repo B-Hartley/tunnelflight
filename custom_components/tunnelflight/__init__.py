@@ -26,12 +26,8 @@ async def async_setup(hass, config):
     global SERVICES_REGISTERED
     if DOMAIN in hass.config_entries.async_entries() and not SERVICES_REGISTERED:
         try:
-            _LOGGER.warning("Setting up Tunnelflight services during async_setup")
             await async_setup_services(hass)
             SERVICES_REGISTERED = True
-            _LOGGER.warning(
-                "Tunnelflight services set up successfully during async_setup"
-            )
         except Exception as e:
             _LOGGER.error(
                 f"Error setting up Tunnelflight services during async_setup: {e}"
@@ -55,14 +51,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     global SERVICES_REGISTERED
     if not SERVICES_REGISTERED:
         try:
-            _LOGGER.warning(
-                "Setting up Tunnelflight services - this should appear in your logs"
-            )
             await async_setup_services(hass)
             SERVICES_REGISTERED = True
-            _LOGGER.warning(
-                "Tunnelflight services set up successfully - this should appear in your logs"
-            )
         except Exception as e:
             _LOGGER.error(f"Error setting up Tunnelflight services: {e}")
             # Add this to get a full traceback

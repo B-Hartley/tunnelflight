@@ -1,69 +1,28 @@
 # IBA Tunnelflight
 
-This integration connects to the International Bodyflight Association (IBA) website and displays your indoor skydiving data in Home Assistant.
+This integration connects to the International Bodyflight Association (IBA) Tunnelflight platform to track your wind tunnel flying stats and skills.
 
 ## Features
 
-- Display your IBA membership status
-- Show flight skills (Static, Dynamic, and Formation levels)
-- Track total flight time
-- Monitor payment and currency expiry dates
-- Support for multiple IBA accounts in one Home Assistant instance
-- Log flight time directly from Home Assistant
-- Search for tunnels using a dynamic database
+- Track your IBA membership status
+- Monitor your Static, Dynamic, and Formation flying skill levels
+- Log flight time directly to your IBA logbook
+- Search for wind tunnels worldwide
 
 ## Configuration
 
-1. Go to **Settings** → **Devices & Services** → **Add Integration**
-2. Search for "IBA Tunnelflight" and follow the setup process
-3. Enter your IBA username and password
+After installation:
 
-## Available Entities
-
-Each IBA account will create:
-
-- Membership status sensor
-- Total flight time sensor
-- Last flight date sensor
-- Skill level sensors (Static, Dynamic, Formation)
-- Currency status binary sensor
-- Payment status binary sensor
+1. Go to Settings → Devices & Services
+2. Click "Add Integration"
+3. Search for "IBA Tunnelflight"
+4. Enter your IBA username and password
 
 ## Services
 
-The integration provides two services:
+- **log_flight_time**: Add flight time to your logbook
+- **find_tunnels**: Search for wind tunnels by name or country
+- **list_countries**: See all countries with wind tunnels
+- **refresh_data**: Force refresh data from the API
 
-### Log Flight Time
-
-Log new flight time entries to your Tunnelflight account:
-
-```yaml
-service: tunnelflight.log_flight_time
-data:
-  tunnel_id: 248  # Basingstoke iFLY
-  time: 10  # Minutes (1-120)
-  comment: "Great session!"
-```
-
-### Find Tunnels
-
-Search for wind tunnels by name or location:
-
-```yaml
-service: tunnelflight.find_tunnels
-data:
-  search_term: "manchester"
-  country: "united kingdom"
-```
-
-To list all available countries:
-
-```yaml
-service: tunnelflight.list_countries
-
-Results appear as a persistent notification in Home Assistant.
-
-## Links
-
-- [Documentation](https://github.com/B-Hartley/tunnelflight)
-- [Report an issue](https://github.com/B-Hartley/tunnelflight/issues)
+See the [full documentation](https://github.com/B-Hartley/tunnelflight) for details.

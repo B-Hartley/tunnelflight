@@ -4,7 +4,7 @@ import logging
 import aiohttp
 import asyncio
 from urllib.parse import urlencode
-from datetime import datetime
+from datetime import datetime, timedelta
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,79 +17,38 @@ class TunnelflightApi:
         self._username = username.lower()  # Store username in lowercase for consistency
         self._password = password
         self._session = session or aiohttp.ClientSession()
-        self._logged_in = False
+        self._token = None
+        self._token_expiry = None
+        self._etags = {}  # Store ETags for different endpoints
 
-        # Log which username this API instance is for
-        _LOGGER.debug(f"Created TunnelflightApi instance for user: {self._username}")
-
-        # Common browser headers that should be added to all standard requests
-        self._browser_headers = {
+        # Minimal browser header that should be added to all requests
+        self._browser_header = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-User": "?1",
-            "Sec-Fetch-Dest": "document",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
         }
 
-        # Special headers for AJAX requests
-        self._ajax_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.tunnelflight.com",
-            "Referer": "https://www.tunnelflight.com/",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        }
+    @property
+    def _auth_header(self):
+        """Return the authorization header with the token."""
+        if not self._token:
+            return {}
+        return {"Authorization": f"Bearer {self._token}"}
 
-    async def _clear_session(self):
-        """Clear the session by logging out and getting a fresh session."""
-        try:
-            # Try to log out first
-            logout_url = "https://www.tunnelflight.com/logout"
-            await self._session.get(logout_url, headers=self._browser_headers)
-            _LOGGER.debug(f"Logged out to clear session for {self._username}")
-
-            # Get a fresh session
-            await self._session.get(
-                "https://www.tunnelflight.com/", headers=self._browser_headers
-            )
-            _LOGGER.debug(f"Got fresh session for {self._username}")
-
-            # Wait a moment for the server to process the logout
-            await asyncio.sleep(2)
-
-        except Exception as e:
-            _LOGGER.error(f"Error clearing session for {self._username}: {e}")
-
-    async def login(self, retry=True):
-        """Login to the IBA website."""
-        _LOGGER.debug(f"Starting login process for username: {self._username}")
-
-        # First, visit the main page to get cookies
-        try:
-            _LOGGER.debug(
-                f"Getting main page to establish session for {self._username}"
-            )
-            await self._session.get(
-                "https://www.tunnelflight.com/", headers=self._browser_headers
-            )
-        except Exception as e:
-            _LOGGER.error(f"Error accessing main page for {self._username}: {e}")
+    @property
+    def is_token_valid(self):
+        """Check if the token is still valid."""
+        if not self._token or not self._token_expiry:
             return False
+        # Consider token valid if it expires in more than 5 minutes
+        return datetime.now() + timedelta(minutes=5) < self._token_expiry
+
+    async def login(self):
+        """Login to the IBA website and get an authentication token."""
+        _LOGGER.debug("Starting login process")
+
+        # If we already have a valid token, no need to login again
+        if self.is_token_valid:
+            _LOGGER.debug("Using existing valid token")
+            return True
 
         login_url = "https://www.tunnelflight.com/login"
         login_data = {
@@ -101,266 +60,281 @@ class TunnelflightApi:
             "passcodeOption": "email",
         }
 
-        _LOGGER.debug(f"Sending login request to {login_url} for {self._username}")
         try:
             async with self._session.post(
-                login_url, json=login_data, headers=self._ajax_headers
+                login_url, json=login_data, headers=self._browser_header
             ) as response:
-                _LOGGER.debug(
-                    f"Login response status for {self._username}: {response.status}"
-                )
-
-                # Handle 409 Conflict - this likely means there's an existing session
-                if response.status == 409 and retry:
-                    _LOGGER.warning(
-                        f"Got 409 conflict for {self._username}, clearing session and retrying"
-                    )
-                    await self._clear_session()
-                    return await self.login(
-                        retry=False
-                    )  # Retry once with retry=False to prevent infinite loops
-
-                # Try to get the response content
-                try:
-                    content = await response.text()
-                    # Log partial content to avoid exposing sensitive data
-                    content_preview = (
-                        content[:100] + "..." if len(content) > 100 else content
-                    )
-                    _LOGGER.debug(
-                        f"Login response preview for {self._username}: {content_preview}"
-                    )
-                except Exception as e:
-                    _LOGGER.error(
-                        f"Could not read response content for {self._username}: {e}"
-                    )
-                    content = ""
+                _LOGGER.debug(f"Login response status: {response.status}")
 
                 # Check status code first
-                if response.status != 200:
-                    _LOGGER.error(
-                        f"Login failed with status {response.status} for {self._username}"
-                    )
-                    self._logged_in = False
+                if response.status not in (200, 201, 202):
+                    _LOGGER.error(f"Login failed with status {response.status}")
                     return False
 
                 # Try to parse as JSON
                 try:
+                    content = await response.text()
                     response_data = json.loads(content)
-                    # Fix for the issue: The site returns "success" in "message" field!
-                    # Check if token exists, or if message contains "success" or "successfully"
+                    
+                    # Check if token exists in the response
                     if "token" in response_data:
-                        self._logged_in = True
-                        _LOGGER.debug(
-                            f"Login successful - token found in response for {self._username}"
-                        )
+                        self._token = response_data["token"]
+                        # Set token expiry to 24 hours from now
+                        self._token_expiry = datetime.now() + timedelta(hours=24)
+                        _LOGGER.debug("Login successful - received token")
+                        return True
                     elif response_data.get("message", "").lower().find("success") >= 0:
-                        self._logged_in = True
-                        _LOGGER.debug(
-                            f"Login successful via success message for {self._username}: {response_data.get('message')}"
+                        _LOGGER.warning(
+                            "Login successful but no token found. Response message: "
+                            f"{response_data.get('message')}"
                         )
+                        # Even if the message says success but we don't have a token, consider it a failure
+                        return False
                     else:
-                        self._logged_in = False
                         _LOGGER.error(
-                            f"Login JSON indicates failure for {self._username}: {response_data.get('message', 'Unknown error')}"
+                            f"Login JSON indicates failure: {response_data.get('message', 'Unknown error')}"
                         )
-                    return self._logged_in
+                        return False
                 except json.JSONDecodeError:
-                    _LOGGER.debug(
-                        f"Response is not valid JSON for {self._username}, checking for success in text"
-                    )
-                    # Sometimes the response is not JSON
-                    self._logged_in = "success" in content.lower()
-                    if self._logged_in:
-                        _LOGGER.debug(
-                            f"Login successful via text response for {self._username}"
-                        )
-                    else:
-                        _LOGGER.error(
-                            f"Login failed - success not found in response for {self._username}"
-                        )
-                    return self._logged_in
+                    _LOGGER.error("Response is not valid JSON")
+                    return False
         except Exception as e:
-            _LOGGER.error(f"Error during login request for {self._username}: {e}")
-            self._logged_in = False
+            _LOGGER.error(f"Error during login request: {e}")
             return False
 
-    async def _fetch_api_endpoint(self, endpoint):
-        """Fetch data from an API endpoint."""
-        if not self._logged_in:
-            _LOGGER.debug(f"Not logged in, attempting login first for {self._username}")
+    async def _fetch_api_endpoint(self, endpoint, use_etag=True):
+        """Fetch data from an API endpoint with ETag support."""
+        # Ensure we have a valid token
+        if not self.is_token_valid:
+            _LOGGER.debug("Token invalid or missing, attempting login")
             success = await self.login()
             if not success:
-                _LOGGER.error(
-                    f"Login failed, cannot fetch data from {endpoint} for {self._username}"
-                )
+                _LOGGER.error(f"Login failed, cannot fetch data from {endpoint}")
                 return None
 
+        # Prepare request headers
+        headers = {**self._browser_header, **self._auth_header}
+
+        # Add If-None-Match header if we have an ETag for this endpoint and use_etag is True
+        if use_etag and endpoint in self._etags:
+            headers["If-None-Match"] = self._etags[endpoint]
+
         try:
-            _LOGGER.debug(f"Fetching data from {endpoint} for {self._username}")
-            async with self._session.get(
-                endpoint, headers=self._ajax_headers
-            ) as response:
-                if response.status != 200:
-                    _LOGGER.error(
-                        f"Failed to fetch data from {endpoint}: {response.status} for {self._username}"
-                    )
-                    # If we get a 401 or 403, try to re-login and fetch again
-                    if response.status in (401, 403):
-                        _LOGGER.debug(f"Attempting to re-login and retry fetch")
-                        self._logged_in = False
-                        success = await self.login()
-                        if success:
-                            return await self._fetch_api_endpoint(endpoint)
+            _LOGGER.debug(f"Fetching data from {endpoint}")
+            async with self._session.get(endpoint, headers=headers) as response:
+                # Handle 304 Not Modified - return cached data
+                if response.status == 304:
+                    _LOGGER.info(f"Resource not modified for {endpoint} (304) - ETag match")
+                    # In a complete implementation, we would return cached data here
+                    # For now, we'll just fetch it again with use_etag=False
+                    return await self._fetch_api_endpoint(endpoint, use_etag=False)
+
+                # Handle 401/403 Unauthorized - token may have expired
+                if response.status in (401, 403):
+                    _LOGGER.debug("Unauthorized access (401/403), refreshing token")
+                    self._token = None  # Clear the token
+                    success = await self.login()
+                    if success:
+                        return await self._fetch_api_endpoint(endpoint, use_etag)
                     return None
 
-                data = await response.json()
-                _LOGGER.debug(
-                    f"Data fetched from {endpoint} for {self._username}, length: {len(str(data))}"
-                )
-                return data
+                # Accept both 200 OK and 201 Created as valid responses
+                if response.status not in (200, 201, 202):
+                    _LOGGER.error(f"Failed to fetch data from {endpoint}: {response.status}")
+                    return None
+
+                # Store the ETag if available
+                if "ETag" in response.headers:
+                    self._etags[endpoint] = response.headers["ETag"]
+
+                # Parse and return the JSON data
+                try:
+                    data = await response.json()
+                    return data
+                except Exception as e:
+                    _LOGGER.error(f"Error parsing JSON from {endpoint}: {e}")
+                    # Try to get the text content
+                    try:
+                        content = await response.text()
+                        # Check if response contains "success" or "ok" despite JSON parsing error
+                        if content and (
+                            "success" in content.lower() or "ok" in content.lower()
+                        ):
+                            _LOGGER.info("Response contains success indicators despite parsing error")
+                            return {"success": True}  # Return a simple success object
+                    except:
+                        pass
+                    return None
         except Exception as e:
-            _LOGGER.error(
-                f"Error fetching data from {endpoint} for {self._username}: {e}"
-            )
+            _LOGGER.error(f"Error fetching data from {endpoint}: {e}")
             return None
 
     async def _fetch_skills_levels(self):
         """Fetch the user's skill levels from the skills-levels endpoint."""
-        if not self._logged_in:
-            _LOGGER.debug(f"Not logged in, attempting login first for {self._username}")
-            success = await self.login()
-            if not success:
-                _LOGGER.error(
-                    f"Login failed, cannot fetch skills levels for {self._username}"
-                )
-                return None
-
-        # Based on the JavaScript code, this is the endpoint for skills levels
-        skills_url = "/account/dashboard/flyer-skills-levels"
-
         # First get the member ID from the flyer-card endpoint
         flyer_card_data = await self._fetch_api_endpoint(
             "https://www.tunnelflight.com/user/module-type/flyer-card/"
         )
         if not flyer_card_data or "member_id" not in flyer_card_data:
-            _LOGGER.error(f"Could not get member ID for {self._username}")
+            _LOGGER.error("Could not get member ID")
             return None
 
         member_id = flyer_card_data.get("member_id")
 
         # Now fetch the skills data with the member ID
         skills_url = f"https://www.tunnelflight.com/account/dashboard/flyer-skills-levels/{member_id}"
-
-        try:
-            _LOGGER.debug(
-                f"Fetching skills levels from {skills_url} for {self._username}"
-            )
-            async with self._session.get(
-                skills_url, headers=self._ajax_headers
-            ) as response:
-                # Accept 201 Created as well as 200 OK - the API sometimes returns 201
-                if response.status not in (200, 201):
-                    _LOGGER.error(
-                        f"Failed to fetch skills levels: {response.status} for {self._username}"
-                    )
-                    return None
-
-                # Try to parse as JSON
-                try:
-                    data = await response.json()
-                    _LOGGER.debug(f"Skills levels fetched for {self._username}: {data}")
-
-                    # Log the raw skill values for debugging
-                    level1 = data.get("level1", "N/A")
-                    static = data.get("static", "N/A")
-                    dynamic = data.get("dynamic", "N/A")
-                    formation = data.get("formation", "N/A")
-                    _LOGGER.debug(
-                        f"Raw skill values for {self._username}: level1={level1}, static={static}, dynamic={dynamic}, formation={formation}"
-                    )
-
-                    # Also log the pending statuses
-                    level1_pending = data.get("level1Pending", False)
-                    static_pending = data.get("staticPending", False)
-                    dynamic_pending = data.get("dynamicPending", False)
-                    formation_pending = data.get("formationPending", False)
-                    _LOGGER.debug(
-                        f"Pending statuses for {self._username}: level1={level1_pending}, static={static_pending}, dynamic={dynamic_pending}, formation={formation_pending}"
-                    )
-
-                    return data
-                except Exception as e:
-                    _LOGGER.error(
-                        f"Error parsing skills JSON for {self._username}: {e}"
-                    )
-
-                    # Try to get the text content
-                    try:
-                        content = await response.text()
-                        _LOGGER.debug(f"Raw response from skills endpoint: {content}")
-                    except:
-                        pass
-
-                    return None
-        except Exception as e:
-            _LOGGER.error(f"Error fetching skills levels for {self._username}: {e}")
-            return None
+        return await self._fetch_api_endpoint(skills_url)
 
     async def get_logbook_entries(self):
         """Get the user's logbook entries containing skills data."""
-        if not self._logged_in:
-            _LOGGER.debug(f"Not logged in, attempting login first for {self._username}")
-            success = await self.login()
-            if not success:
-                _LOGGER.error(
-                    f"Login failed, cannot fetch logbook for {self._username}"
-                )
-                return None
-
         # First get the member ID from the flyer-card endpoint
         flyer_card_data = await self._fetch_api_endpoint(
             "https://www.tunnelflight.com/user/module-type/flyer-card/"
         )
         if not flyer_card_data or "member_id" not in flyer_card_data:
-            _LOGGER.error(f"Could not get member ID for {self._username}")
+            _LOGGER.error("Could not get member ID")
             return None
 
         member_id = flyer_card_data.get("member_id")
 
         # Construct the logbook URL with the member ID
         logbook_url = f"https://www.tunnelflight.com/account/logbook/member/skills/open-suspended/{member_id}"
+        return await self._fetch_api_endpoint(logbook_url)
 
-        _LOGGER.warning(
-            f"Using member_id: {member_id} to fetch logbook entries from {logbook_url}"
-        )
+    async def _post_api_endpoint(self, endpoint, data):
+        """Post data to an API endpoint."""
+        # Ensure we have a valid token
+        if not self.is_token_valid:
+            _LOGGER.debug("Token invalid or missing, attempting login")
+            success = await self.login()
+            if not success:
+                _LOGGER.error(f"Login failed, cannot post data to {endpoint}")
+                return None
+
+        # Prepare request headers
+        headers = {
+            **self._browser_header,
+            **self._auth_header,
+            "Content-Type": "application/json",
+        }
 
         try:
-            async with self._session.get(
-                logbook_url, headers=self._ajax_headers
+            _LOGGER.debug(f"Posting data to {endpoint}")
+            async with self._session.post(
+                endpoint, json=data, headers=headers
             ) as response:
-                # Accept both 200 OK and 201 Created as valid responses
-                if response.status not in (200, 201):
-                    _LOGGER.error(f"Failed to fetch logbook entries: {response.status}")
+                # Handle 401/403 Unauthorized - token may have expired
+                if response.status in (401, 403):
+                    _LOGGER.debug("Unauthorized post (401/403), refreshing token")
+                    self._token = None  # Clear the token
+                    success = await self.login()
+                    if success:
+                        return await self._post_api_endpoint(endpoint, data)
                     return None
 
+                # Accept 200 OK, 201 Created, and 202 Accepted as valid responses
+                if response.status not in (200, 201, 202):
+                    _LOGGER.error(f"Failed to post data to {endpoint}: {response.status}")
+                    return None
+
+                # Parse and return the JSON data
                 try:
                     data = await response.json()
-                    _LOGGER.warning(
-                        f"Fetched {len(data) if data else 'no'} logbook entries"
-                    )
+                    _LOGGER.debug(f"Response received from {endpoint}")
                     return data
                 except Exception as e:
-                    _LOGGER.error(f"Error parsing logbook entries: {e}")
-                    content = await response.text()
-                    _LOGGER.warning(f"Raw response content: {content[:200]}")
+                    _LOGGER.error(f"Error parsing JSON response: {e}")
+                    # Try to get the text content
+                    try:
+                        content = await response.text()
+                        # If response contains "success" somewhere, consider it a success despite JSON parsing error
+                        if "success" in content.lower() or "ok" in content.lower():
+                            _LOGGER.info("Assuming success based on response text")
+                            return {
+                                "message": "Ok",
+                                "success": True,
+                            }  # Return a dummy success response
+                    except Exception as parse_error:
+                        _LOGGER.error(f"Error parsing response text: {parse_error}")
                     return None
         except Exception as e:
-            _LOGGER.error(f"Error fetching logbook entries: {e}")
+            _LOGGER.error(f"Error posting data to {endpoint}: {e}")
             return None
+
+    async def log_flight_time(
+        self, tunnel_id, time_minutes, comment="", entry_date=None
+    ):
+        """Log flight time to the user's logbook."""
+        # Use current timestamp if entry_date not provided
+        if entry_date is None:
+            entry_date = int(datetime.now().timestamp())
+        elif isinstance(entry_date, datetime):
+            entry_date = int(entry_date.timestamp())
+
+        # Get tunnel name
+        tunnels = await self.get_tunnels()
+        tunnel_name = "Unknown Tunnel"
+        if tunnels and tunnel_id in tunnels:
+            tunnel_name = tunnels[tunnel_id]["title"]
+
+        # Prepare log entry data
+        log_data = {
+            "entry_id": "",  # Empty for new entries
+            "status": "open",
+            "entry_date": entry_date,
+            "tunnel": str(tunnel_id),
+            "tunnel_name": tunnel_name,
+            "comment": comment,
+            "time": str(time_minutes),
+        }
+
+        _LOGGER.info(f"Logging {time_minutes} minutes at {tunnel_name} (ID: {tunnel_id})")
+        
+        # Post the logbook entry
+        return await self._post_api_endpoint(
+            "https://www.tunnelflight.com/account/logbook/member/time/", log_data
+        )
+
+    async def get_tunnels(self):
+        """Fetch the list of tunnels from the API."""
+        tunnels_data = await self._fetch_api_endpoint(
+            "https://www.tunnelflight.com/account/logbook/tunnels/"
+        )
+
+        if not tunnels_data or not isinstance(tunnels_data, list):
+            _LOGGER.error("Failed to fetch tunnels list or invalid format")
+            return {}
+
+        # Convert to a more usable format (ID-indexed dictionary)
+        tunnels = {}
+        for tunnel in tunnels_data:
+            try:
+                tunnel_id = int(tunnel.get("entry_id", 0))
+                if tunnel_id > 0:
+                    tunnels[tunnel_id] = {
+                        "title": tunnel.get("title", "Unknown"),
+                        "country": tunnel.get("country", "Unknown"),
+                        "size": tunnel.get("size", "Unknown"),
+                        "manufacturer": tunnel.get("manufacturer", "Unknown"),
+                        "address": tunnel.get("address", ""),
+                        "address_city": tunnel.get("address_city", ""),
+                        "status": tunnel.get("status", "Unknown"),
+                    }
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(f"Error processing tunnel data: {e}")
+
+        _LOGGER.debug(f"Fetched {len(tunnels)} tunnels from API")
+        return tunnels
 
     async def get_user_data(self):
         """Get user data from both API endpoints and combine them."""
+        # If token is invalid, try to login first
+        if not self.is_token_valid:
+            login_success = await self.login()
+            if not login_success:
+                _LOGGER.error("Login failed, cannot fetch user data")
+                return None
+
         flyer_card_data = await self._fetch_api_endpoint(
             "https://www.tunnelflight.com/user/module-type/flyer-card/"
         )
@@ -369,11 +343,8 @@ class TunnelflightApi:
         )
 
         if not flyer_card_data:
-            _LOGGER.error(f"Failed to fetch flyer card data for {self._username}")
+            _LOGGER.error("Failed to fetch flyer card data")
             return None
-
-        # Also try to fetch the user info from the dashboard for any additional details
-        dashboard_data = await self._fetch_dashboard_data()
 
         # Fetch the skills levels data
         skills_data = await self._fetch_skills_levels()
@@ -392,12 +363,6 @@ class TunnelflightApi:
         if flyer_charts_data:
             # Only add keys that don't already exist or have None values
             for key, value in flyer_charts_data.items():
-                if key not in user_data or user_data[key] is None:
-                    user_data[key] = value
-
-        # Add any additional data from dashboard
-        if dashboard_data:
-            for key, value in dashboard_data.items():
                 if key not in user_data or user_data[key] is None:
                     user_data[key] = value
 
@@ -517,9 +482,6 @@ class TunnelflightApi:
                 # Second, if level1 is Yes but a specific skill is still at 0,
                 # set that skill to level 1 as well
                 if skills_data.get("level1") == "Yes":
-                    _LOGGER.debug(
-                        f"Level1 is Yes for {self._username}, ensuring minimum level 1 for all skills"
-                    )
                     # Only set to 1 if not already set to a higher value
                     if user_data.get("static_level", 0) == 0:
                         user_data["static_level"] = 1
@@ -568,20 +530,26 @@ class TunnelflightApi:
             else:
                 user_data["formation_level_status"] = "Not Passed"
 
-            # Validate that the data belongs to the correct user
-            fetched_username = user_data.get("screen_name", "")
-            if fetched_username:
-                # Do a more forgiving comparison
+            # For user-specific data operations, validate that the data belongs to the authenticated user
+            # For general operations like tunnel listings, this validation is skipped
+            fetched_username = user_data.get("screen_name", "") or user_data.get(
+                "real_name", ""
+            )
+            if (
+                fetched_username and "member_id" in user_data
+            ):  # Only validate for member-specific data
+                # Do a sanity check to verify we're getting the right user's data
                 fetched_normalized = fetched_username.lower().replace(" ", "")
                 config_normalized = self._username.lower().replace(" ", "")
 
-                # Only warn if there's a significant mismatch
+                # If there's a significant mismatch between the authenticated user and the data we received
                 if not (
                     fetched_normalized.startswith(config_normalized[:3])
                     or config_normalized.startswith(fetched_normalized[:3])
                 ):
                     _LOGGER.warning(
-                        f"Data mismatch! Fetched data for {fetched_username} but expected {self._username}"
+                        f"Data mismatch! Authenticated as {self._username} but received data for {fetched_username}. "
+                        f"This suggests an issue with token/authentication handling."
                     )
 
         # Add logbook entries to user data
@@ -613,67 +581,6 @@ class TunnelflightApi:
             user_data["skills_by_category"] = skills_by_category
 
         return user_data
-
-    async def _fetch_dashboard_data(self):
-        """Get user data from the dashboard HTML."""
-        if not self._logged_in:
-            _LOGGER.debug(f"Not logged in, attempting login first for {self._username}")
-            success = await self.login()
-            if not success:
-                _LOGGER.error(
-                    f"Login failed, cannot fetch dashboard data for {self._username}"
-                )
-                return None
-
-        dashboard_url = "https://www.tunnelflight.com/account/dashboard"
-        _LOGGER.debug(f"Fetching dashboard from {dashboard_url} for {self._username}")
-
-        try:
-            async with self._session.get(
-                dashboard_url, headers=self._browser_headers
-            ) as response:
-                if response.status != 200:
-                    _LOGGER.error(
-                        f"Failed to fetch dashboard: {response.status} for {self._username}"
-                    )
-                    return None
-
-                html = await response.text()
-                _LOGGER.debug(
-                    f"Dashboard fetched for {self._username}, HTML length: {len(html)}"
-                )
-
-                # Extract the user info JSON from the HTML
-                user_info_match = re.search(
-                    r'<script id="userInfoObj" type="application/json">(.*?)</script>',
-                    html,
-                    re.DOTALL,
-                )
-
-                if not user_info_match:
-                    _LOGGER.error(
-                        f"Could not find user info in dashboard HTML for {self._username}"
-                    )
-                    # Log a portion of the HTML to help debugging
-                    html_snippet = html[:500] + "..." if len(html) > 500 else html
-                    _LOGGER.debug(f"HTML snippet for {self._username}: {html_snippet}")
-                    return None
-
-                try:
-                    user_info_json = user_info_match.group(1)
-                    _LOGGER.debug(
-                        f"Found user info JSON snippet for {self._username}: {user_info_json[:100]}"
-                    )
-                    user_info = json.loads(user_info_json)
-                    return user_info
-                except json.JSONDecodeError as e:
-                    _LOGGER.error(
-                        f"Failed to parse user info for {self._username}: {e}"
-                    )
-                    return None
-        except Exception as e:
-            _LOGGER.error(f"Error fetching dashboard for {self._username}: {e}")
-            return None
 
     # Don't close the session - Home Assistant will manage it
     async def close(self):
