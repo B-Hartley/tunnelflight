@@ -141,12 +141,16 @@
         "country": {
           "name": "Country",
           "description": "Filter results by country"
-        },
-        "list_countries": {
-          "name": "List Countries",
-          "description": "Set to true to list all available countries with tunnels"
         }
       }
+    },
+    "list_countries": {
+      "name": "List Countries",
+      "description": "List all countries that have wind tunnels"
+    },
+    "refresh_data": {
+      "name": "Refresh Data",
+      "description": "Force a refresh of all data from the Tunnelflight API"
     }
   },
   "title": "IBA Tunnelflight"
