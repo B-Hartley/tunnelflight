@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "IBA Tunnelflight",
+        "description": "Set up your International Bodyflight Association account to monitor your membership status.",
+        "data": {
+          "username": "IBA Username",
+          "password": "IBA Password",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "auth": "Invalid username or password. Please check your credentials."
+    },
+    "abort": {
+      "already_configured": "This IBA account is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "tunnelflight": {
+        "state": {
+          "Active": "Active",
+          "Inactive": "Inactive",
+          "Expired": "Expired",
+          "Suspended": "Suspended",
+          "Not Current": "Not Current"
+        },
+        "state_attributes": {
+          "member_id": "Member ID",
+          "role_name": "Role",
+          "currency_flyer": "Flyer Currency",
+          "currency_instructor": "Instructor Currency",
+          "currency_coach": "Coach Currency",
+          "email": "Email",
+          "username": "Username",
+          "real_name": "Name",
+          "tunnel": "Home Tunnel",
+          "country": "Country",
+          "join_date": "Member Since",
+          "last_flight": "Last Flight"
+        }
+      },
+      "static_level": {
+        "state_attributes": {
+          "status": "Status",
+          "raw_value": "Raw Value",
+          "pending": "Pending",
+          "level1": "Level 1",
+          "level1_pending": "Level 1 Pending"
+        }
+      },
+      "dynamic_level": {
+        "state_attributes": {
+          "status": "Status",
+          "raw_value": "Raw Value",
+          "pending": "Pending",
+          "level1": "Level 1",
+          "level1_pending": "Level 1 Pending"
+        }
+      },
+      "formation_level": {
+        "state_attributes": {
+          "status": "Status",
+          "raw_value": "Raw Value",
+          "pending": "Pending",
+          "level1": "Level 1",
+          "level1_pending": "Level 1 Pending"
+        }
+      },
+      "total_flight_time": {
+        "state_attributes": {
+          "hours_decimal": "Hours (decimal)",
+          "total_minutes": "Total Minutes"
+        }
+      }
+    },
+    "binary_sensor": {
+      "payment_status": {
+        "state": {
+          "on": "Active",
+          "off": "Inactive"
+        },
+        "state_attributes": {
+          "expiry_date": "Expiry Date",
+          "days_remaining": "Days Remaining"
+        }
+      },
+      "flyer_currency": {
+        "state": {
+          "on": "Current",
+          "off": "Not Current"
+        },
+        "state_attributes": {
+          "expiry_date": "Expiry Date",
+          "days_remaining": "Days Remaining"
+        }
+      }
+    }
+  },
+  "title": "IBA Tunnelflight"
+}

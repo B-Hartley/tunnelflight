@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "IBA Tunnelflight",
+        "description": "Set up your International Bodyflight Association account to monitor your membership status.",
+        "data": {
+          "username": "IBA Username",
+          "password": "IBA Password",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "auth": "Invalid username or password. Please check your credentials."
+    },
+    "abort": {
+      "already_configured": "This IBA account is already configured"
+    }
+  }
+}
