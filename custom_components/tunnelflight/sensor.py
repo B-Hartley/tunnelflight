@@ -387,6 +387,7 @@ class TunnelflightBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._sensor_type = sensor_type
         self._description = description
         self._icon = icon
+        self._attr_translation_key = sensor_type 
 
         # Log initialization to verify entities are being created
         _LOGGER.debug(f"Creating binary sensor: {self._name} ({self._sensor_type})")
