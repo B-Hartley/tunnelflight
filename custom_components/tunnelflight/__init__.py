@@ -1,5 +1,7 @@
 import logging
 import asyncio
+from homeassistant.helpers import config_validation as cv
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_NAME
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -9,12 +11,11 @@ from .logbook_service import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
-# Add binary_sensor to the platforms list
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = ["sensor", "binary_sensor"]
 
 # Track whether services have been set up
 SERVICES_REGISTERED = False
-
 
 async def async_setup(hass, config):
     """Set up the IBA Tunnelflight component."""
@@ -37,7 +38,6 @@ async def async_setup(hass, config):
             _LOGGER.error(f"Traceback: {traceback.format_exc()}")
 
     return True
-
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up IBA Tunnelflight from a config entry."""
@@ -64,7 +64,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         f"Tunnelflight entry setup complete for {entry.data.get('username', 'unknown')}"
     )
     return True
-
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""

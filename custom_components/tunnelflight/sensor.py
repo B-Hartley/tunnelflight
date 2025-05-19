@@ -366,11 +366,11 @@ class TunnelflightSensor(CoordinatorEntity, SensorEntity):
     def _format_currency_status(self, status):
         """Format currency status to a readable value."""
         if status == 1:
-            return "Current"
+            return "current"
         elif status == 0:
-            return "Not Current"
+            return "not_current"
         else:
-            return "Unknown"
+            return "unknown"
 
 
 class TunnelflightBinarySensor(CoordinatorEntity, BinarySensorEntity):
@@ -418,7 +418,7 @@ class TunnelflightBinarySensor(CoordinatorEntity, BinarySensorEntity):
             # Then try the flyer_currency_status field
             flyer_currency_status = user_info.get("flyer_currency_status")
             if flyer_currency_status:
-                return flyer_currency_status == "Active"
+                return flyer_currency_status.lower() == "active"
 
             return False
 
@@ -426,13 +426,13 @@ class TunnelflightBinarySensor(CoordinatorEntity, BinarySensorEntity):
             # First try the payment_status field
             payment_status = user_info.get("payment_status")
             if payment_status:
-                return payment_status == "Active"
+                return payment_status.lower() == "active"
 
             # Then try paymentData.paymentStatus field
             payment_data = user_info.get("paymentData", {})
             payment_status = payment_data.get("paymentStatus")
             if payment_status:
-                return payment_status == "Active"
+                return payment_status.lower() == "active"
 
             return False
 
@@ -592,7 +592,19 @@ class TunnelflightDataSensor(CoordinatorEntity, SensorEntity):
         if self._sensor_type == "total_flight_time":
             # Use the formatted flight time directly from API if available
             if "total_flight_time" in user_info:
-                return f"{user_info['total_flight_time']} hours"
+                # Format properly to ensure minutes have leading zeros
+                time_str = user_info['total_flight_time']
+                if ":" in time_str:
+                    try:
+                        hours_str, minutes_str = time_str.split(":")
+                        hours = int(hours_str)
+                        minutes = int(minutes_str)
+                        return f"{hours}:{minutes:02d} hours"
+                    except (ValueError, TypeError):
+                        # In case of parsing error, return the original string
+                        return f"{time_str} hours"
+                else:
+                    return f"{time_str} hours"
 
             # Otherwise use the parsed components if available
             elif (
@@ -758,14 +770,14 @@ class TunnelflightSkillSensor(CoordinatorEntity, SensorEntity):
         if self._skill_type == "static_level":
             # First check for pending status
             if user_info.get("static_pending", False):
-                attributes["status"] = "Pending"
+                attributes["status"] = "pending"
             # Then check for explicit status
             elif "static_level_status" in user_info:
                 attributes["status"] = user_info.get("static_level_status")
             else:
                 # Otherwise derive status from level
                 level = user_info.get("static_level", 0)
-                attributes["status"] = "Passed" if level > 0 else "Not Passed"
+                attributes["status"] = "passed" if level > 0 else "not_passed"
 
             # Include the raw value from the API if available (Yes/No)
             if "static" in user_info:
@@ -778,14 +790,14 @@ class TunnelflightSkillSensor(CoordinatorEntity, SensorEntity):
         elif self._skill_type == "dynamic_level":
             # First check for pending status
             if user_info.get("dynamic_pending", False):
-                attributes["status"] = "Pending"
+                attributes["status"] = "pending"
             # Then check for explicit status
             elif "dynamic_level_status" in user_info:
                 attributes["status"] = user_info.get("dynamic_level_status")
             else:
                 # Otherwise derive status from level
                 level = user_info.get("dynamic_level", 0)
-                attributes["status"] = "Passed" if level > 0 else "Not Passed"
+                attributes["status"] = "passed" if level > 0 else "not_passed"
 
             # Include the raw value from the API if available
             if "dynamic" in user_info:
@@ -798,14 +810,14 @@ class TunnelflightSkillSensor(CoordinatorEntity, SensorEntity):
         elif self._skill_type == "formation_level":
             # First check for pending status
             if user_info.get("formation_pending", False):
-                attributes["status"] = "Pending"
+                attributes["status"] = "pending"
             # Then check for explicit status
             elif "formation_level_status" in user_info:
                 attributes["status"] = user_info.get("formation_level_status")
             else:
                 # Otherwise derive status from level
                 level = user_info.get("formation_level", 0)
-                attributes["status"] = "Passed" if level > 0 else "Not Passed"
+                attributes["status"] = "passed" if level > 0 else "not_passed"
 
             # Include the raw value from the API if available
             if "formation" in user_info:

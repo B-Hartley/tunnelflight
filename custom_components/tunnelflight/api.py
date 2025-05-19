@@ -273,7 +273,7 @@ class TunnelflightApi:
 
         # Get tunnel name
         tunnels = await self.get_tunnels()
-        tunnel_name = "Unknown Tunnel"
+        tunnel_name = "unknown_tunnel"
         if tunnels and tunnel_id in tunnels:
             tunnel_name = tunnels[tunnel_id]["title"]
 
@@ -312,13 +312,13 @@ class TunnelflightApi:
                 tunnel_id = int(tunnel.get("entry_id", 0))
                 if tunnel_id > 0:
                     tunnels[tunnel_id] = {
-                        "title": tunnel.get("title", "Unknown"),
-                        "country": tunnel.get("country", "Unknown"),
+                        "title": tunnel.get("title", "unknown"),
+                        "country": tunnel.get("country", "unknown"),
                         "size": tunnel.get("size", "Unknown"),
-                        "manufacturer": tunnel.get("manufacturer", "Unknown"),
+                        "manufacturer": tunnel.get("manufacturer", "unknown"),
                         "address": tunnel.get("address", ""),
                         "address_city": tunnel.get("address_city", ""),
-                        "status": tunnel.get("status", "Unknown"),
+                        "status": tunnel.get("status", "unknown"),
                     }
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(f"Error processing tunnel data: {e}")
@@ -371,7 +371,7 @@ class TunnelflightApi:
             # Format the payment and currency status
             payment_status = user_data.get("paymentData", {}).get("paymentStatus")
             if payment_status:
-                user_data["payment_status"] = payment_status
+                user_data["payment_status"] = payment_status.lower()
 
             # Extract payment expiry date from nextDate timestamp
             payment_next_date = user_data.get("paymentData", {}).get("nextDate")
@@ -496,10 +496,10 @@ class TunnelflightApi:
                 user_data["formation_level"] = 0
 
                 # Set default values for other skill fields
-                user_data["level1"] = "No"
-                user_data["static"] = "No"
-                user_data["dynamic"] = "No"
-                user_data["formation"] = "No"
+                user_data["level1"] = "no"
+                user_data["static"] = "no"
+                user_data["dynamic"] = "no"
+                user_data["formation"] = "no"
                 user_data["level1_pending"] = False
                 user_data["static_pending"] = False
                 user_data["dynamic_pending"] = False
@@ -508,27 +508,27 @@ class TunnelflightApi:
             # Set skill status based on level and pending status
             # For static level
             if user_data.get("static_pending", False):
-                user_data["static_level_status"] = "Pending"
+                user_data["static_level_status"] = "pending"
             elif user_data.get("static_level", 0) > 0:
-                user_data["static_level_status"] = "Passed"
+                user_data["static_level_status"] = "passed"
             else:
-                user_data["static_level_status"] = "Not Passed"
+                user_data["static_level_status"] = "not_passed"
 
             # For dynamic level
             if user_data.get("dynamic_pending", False):
-                user_data["dynamic_level_status"] = "Pending"
+                user_data["dynamic_level_status"] = "pending"
             elif user_data.get("dynamic_level", 0) > 0:
-                user_data["dynamic_level_status"] = "Passed"
+                user_data["dynamic_level_status"] = "passed"
             else:
-                user_data["dynamic_level_status"] = "Not Passed"
+                user_data["dynamic_level_status"] = "not_passed"
 
             # For formation level
             if user_data.get("formation_pending", False):
-                user_data["formation_level_status"] = "Pending"
+                user_data["formation_level_status"] = "pending"
             elif user_data.get("formation_level", 0) > 0:
-                user_data["formation_level_status"] = "Passed"
+                user_data["formation_level_status"] = "passed"
             else:
-                user_data["formation_level_status"] = "Not Passed"
+                user_data["formation_level_status"] = "not_passed"
 
             # For user-specific data operations, validate that the data belongs to the authenticated user
             # For general operations like tunnel listings, this validation is skipped
@@ -560,9 +560,9 @@ class TunnelflightApi:
             skills_by_category = {}
 
             for entry in logbook_entries:
-                cat_name = entry.get("cat_name", "Unknown")
-                skill_name = entry.get("skill_name", "Unknown")
-                status = entry.get("status", "Unknown")
+                cat_name = entry.get("cat_name", "unknown")
+                skill_name = entry.get("skill_name", "unknown")
+                status = entry.get("status", "unknown")
 
                 if cat_name not in skills_by_category:
                     skills_by_category[cat_name] = []

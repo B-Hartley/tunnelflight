@@ -22,11 +22,11 @@
     "sensor": {
       "tunnelflight": {
         "state": {
-          "Active": "Active",
-          "Inactive": "Inactive",
-          "Expired": "Expired",
-          "Suspended": "Suspended",
-          "Not Current": "Not Current"
+          "active": "Active",
+          "inactive": "Inactive",
+          "expired": "Expired",
+          "suspended": "Suspended",
+          "not_current": "Not Current"
         },
         "state_attributes": {
           "member_id": "Member ID",
