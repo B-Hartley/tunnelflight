@@ -71,33 +71,70 @@ class TunnelflightApi:
                     _LOGGER.error(f"Login failed with status {response.status}")
                     return False
 
-                # Try to parse as JSON
-                try:
-                    content = await response.text()
-                    response_data = json.loads(content)
-                    
-                    # Check if token exists in the response
-                    if "token" in response_data:
-                        self._token = response_data["token"]
-                        # Set token expiry to 24 hours from now
-                        self._token_expiry = datetime.now() + timedelta(hours=24)
-                        _LOGGER.debug("Login successful - received token")
-                        return True
-                    elif response_data.get("message", "").lower().find("success") >= 0:
-                        _LOGGER.warning(
-                            "Login successful but no token found. Response message: "
-                            f"{response_data.get('message')}"
-                        )
-                        # Even if the message says success but we don't have a token, consider it a failure
+                # Check content type to detect if we received JSON or HTML
+                content_type = response.headers.get('Content-Type', '')
+                
+                # Try to parse as JSON if the content type suggests it's JSON
+                if 'application/json' in content_type:
+                    try:
+                        response_data = await response.json()
+                        
+                        # Check if token exists in the response
+                        if "token" in response_data:
+                            self._token = response_data["token"]
+                            # Set token expiry to 24 hours from now
+                            self._token_expiry = datetime.now() + timedelta(hours=24)
+                            _LOGGER.debug("Login successful - received token")
+                            return True
+                        elif response_data.get("message", "").lower().find("success") >= 0:
+                            _LOGGER.warning(
+                                "Login successful but no token found. Response message: "
+                                f"{response_data.get('message')}"
+                            )
+                            # Even if the message says success but we don't have a token, consider it a failure
+                            return False
+                        else:
+                            _LOGGER.error(
+                                f"Login JSON indicates failure: {response_data.get('message', 'Unknown error')}"
+                            )
+                            return False
+                    except json.JSONDecodeError:
+                        _LOGGER.error("Response is not valid JSON despite application/json content type")
                         return False
-                    else:
-                        _LOGGER.error(
-                            f"Login JSON indicates failure: {response_data.get('message', 'Unknown error')}"
-                        )
+                else:
+                    # If we got HTML instead of JSON, it could be the login form or an error page
+                    try:
+                        content = await response.text()
+                        # Check for any indication of success in the HTML response
+                        if content and ('success' in content.lower() or 'welcome' in content.lower()):
+                            _LOGGER.warning("Login may have succeeded but response is HTML, not JSON")
+                            # Make a follow-up request to a protected endpoint to check if we're logged in
+                            check_url = "https://www.tunnelflight.com/user/module-type/flyer-card/"
+                            async with self._session.get(check_url, headers=self._browser_header) as check_response:
+                                # If we get JSON back and not HTML, we're logged in
+                                check_content_type = check_response.headers.get('Content-Type', '')
+                                if 'application/json' in check_content_type:
+                                    try:
+                                        check_data = await check_response.json()
+                                        if check_data and 'member_id' in check_data:
+                                            _LOGGER.info("Login succeeded despite HTML response")
+                                            # Set a dummy token so we know we're logged in
+                                            self._token = "session_based_auth"
+                                            self._token_expiry = datetime.now() + timedelta(hours=24)
+                                            return True
+                                    except:
+                                        pass
+                        
+                        # Check for error messages in the HTML
+                        if content and ('error' in content.lower() or 'invalid' in content.lower()):
+                            _LOGGER.error("Login failed according to HTML response")
+                            return False
+                        
+                        _LOGGER.error("Login returned HTML instead of JSON and couldn't determine success/failure")
                         return False
-                except json.JSONDecodeError:
-                    _LOGGER.error("Response is not valid JSON")
-                    return False
+                    except Exception as e:
+                        _LOGGER.error(f"Error processing login response: {e}")
+                        return False
         except Exception as e:
             _LOGGER.error(f"Error during login request: {e}")
             return False
@@ -138,6 +175,28 @@ class TunnelflightApi:
                         return await self._fetch_api_endpoint(endpoint, use_etag)
                     return None
 
+                # Check content-type to detect if we received an HTML login page instead of JSON
+                content_type = response.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    _LOGGER.debug(f"Received HTML response instead of JSON from {endpoint}, likely the token expired")
+                    
+                    # Get a small sample of the content to confirm it's a login page
+                    content_sample = await response.content.read(2000)  # Read first 2000 bytes
+                    content_sample_str = content_sample.decode('utf-8', errors='ignore')
+                    
+                    # Check if it contains login form indicators
+                    if '<title>' in content_sample_str and ('login' in content_sample_str.lower() or 
+                                                            'sign in' in content_sample_str.lower() or
+                                                            'password' in content_sample_str.lower()):
+                        _LOGGER.info("Detected login page in response, refreshing token")
+                        # Clear the token and login again
+                        self._token = None
+                        success = await self.login()
+                        if success:
+                            # Retry the request with the new token
+                            return await self._fetch_api_endpoint(endpoint, use_etag)
+                        return None
+
                 # Accept both 200 OK and 201 Created as valid responses
                 if response.status not in (200, 201, 202):
                     _LOGGER.error(f"Failed to fetch data from {endpoint}: {response.status}")
@@ -147,23 +206,60 @@ class TunnelflightApi:
                 if "ETag" in response.headers:
                     self._etags[endpoint] = response.headers["ETag"]
 
-                # Parse and return the JSON data
+                # Check content type again to handle potential HTML responses with 200 status
+                content_type = response.headers.get('Content-Type', '')
+                
+                # If we're expecting JSON but getting HTML with status 200, it could be a login page
+                if 'application/json' not in content_type and 'text/html' in content_type:
+                    _LOGGER.debug(f"Received HTML with status 200 from {endpoint}, checking if it's a login page")
+                    
+                    # Sample the content to check if it's a login page
+                    content_sample = await response.content.read(2000)
+                    content_sample_str = content_sample.decode('utf-8', errors='ignore')
+                    
+                    if ('<form' in content_sample_str.lower() and 
+                        ('login' in content_sample_str.lower() or 'username' in content_sample_str.lower() or
+                         'password' in content_sample_str.lower())):
+                        _LOGGER.info("Detected login page in 200 response, refreshing token")
+                        # Clear the token and login again
+                        self._token = None
+                        success = await self.login()
+                        if success:
+                            # Retry the request with the new token
+                            return await self._fetch_api_endpoint(endpoint, use_etag)
+                        return None
+
+                # Try to parse the JSON data
                 try:
                     data = await response.json()
                     return data
                 except Exception as e:
-                    _LOGGER.error(f"Error parsing JSON from {endpoint}: {e}")
-                    # Try to get the text content
+                    # If JSON parsing fails, it might be an HTML response
+                    _LOGGER.warning(f"Error parsing JSON from {endpoint}: {e}")
+                    
+                    # Get the content to check if it's an HTML login page
                     try:
                         content = await response.text()
+                        
+                        # Check if it's an HTML login page
+                        if content and '<html' in content.lower() and ('login' in content.lower() or 
+                                                                     'sign in' in content.lower() or
+                                                                     'password' in content.lower()):
+                            _LOGGER.info("Received login page instead of JSON, refreshing token")
+                            self._token = None  # Clear the token
+                            success = await self.login()
+                            if success:
+                                # Retry the request with the new token
+                                return await self._fetch_api_endpoint(endpoint, use_etag)
+                            return None
+                        
                         # Check if response contains "success" or "ok" despite JSON parsing error
-                        if content and (
-                            "success" in content.lower() or "ok" in content.lower()
-                        ):
+                        if content and ("success" in content.lower() or "ok" in content.lower()):
                             _LOGGER.info("Response contains success indicators despite parsing error")
                             return {"success": True}  # Return a simple success object
                     except:
                         pass
+                    
                     return None
         except Exception as e:
             _LOGGER.error(f"Error fetching data from {endpoint}: {e}")
@@ -220,9 +316,7 @@ class TunnelflightApi:
 
         try:
             _LOGGER.debug(f"Posting data to {endpoint}")
-            async with self._session.post(
-                endpoint, json=data, headers=headers
-            ) as response:
+            async with self._session.post(endpoint, json=data, headers=headers) as response:
                 # Handle 401/403 Unauthorized - token may have expired
                 if response.status in (401, 403):
                     _LOGGER.debug("Unauthorized post (401/403), refreshing token")
@@ -231,6 +325,25 @@ class TunnelflightApi:
                     if success:
                         return await self._post_api_endpoint(endpoint, data)
                     return None
+
+                # Check content-type to detect if we received an HTML login page instead of JSON
+                content_type = response.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    _LOGGER.debug(f"Received HTML response instead of JSON from POST {endpoint}, likely the token expired")
+                    
+                    # Sample the content to check if it's a login page
+                    content_sample = await response.content.read(2000)
+                    content_sample_str = content_sample.decode('utf-8', errors='ignore')
+                    
+                    if ('<form' in content_sample_str.lower() and 
+                        ('login' in content_sample_str.lower() or 'username' in content_sample_str.lower() or
+                         'password' in content_sample_str.lower())):
+                        _LOGGER.info("Detected login page in POST response, refreshing token")
+                        self._token = None
+                        success = await self.login()
+                        if success:
+                            return await self._post_api_endpoint(endpoint, data)
+                        return None
 
                 # Accept 200 OK, 201 Created, and 202 Accepted as valid responses
                 if response.status not in (200, 201, 202):
@@ -243,19 +356,30 @@ class TunnelflightApi:
                     _LOGGER.debug(f"Response received from {endpoint}")
                     return data
                 except Exception as e:
-                    _LOGGER.error(f"Error parsing JSON response: {e}")
-                    # Try to get the text content
+                    # If JSON parsing fails, it might be an HTML response
+                    _LOGGER.warning(f"Error parsing JSON response: {e}")
+                    
                     try:
                         content = await response.text()
-                        # If response contains "success" somewhere, consider it a success despite JSON parsing error
-                        if "success" in content.lower() or "ok" in content.lower():
-                            _LOGGER.info("Assuming success based on response text")
-                            return {
-                                "message": "Ok",
-                                "success": True,
-                            }  # Return a dummy success response
+                        
+                        # Check if it's an HTML login page
+                        if content and '<html' in content.lower() and ('login' in content.lower() or 
+                                                                      'sign in' in content.lower() or
+                                                                      'password' in content.lower()):
+                            _LOGGER.info("Received login page instead of JSON after POST, refreshing token")
+                            self._token = None  # Clear the token
+                            success = await self.login()
+                            if success:
+                                return await self._post_api_endpoint(endpoint, data)
+                            return None
+                        
+                        # Check if response contains "success" or "ok" despite JSON parsing error
+                        if content and ("success" in content.lower() or "ok" in content.lower()):
+                            _LOGGER.info("Response contains success indicators despite parsing error")
+                            return {"success": True}  # Return a simple success object
                     except Exception as parse_error:
                         _LOGGER.error(f"Error parsing response text: {parse_error}")
+                    
                     return None
         except Exception as e:
             _LOGGER.error(f"Error posting data to {endpoint}: {e}")
