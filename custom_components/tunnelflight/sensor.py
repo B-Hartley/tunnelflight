@@ -231,6 +231,7 @@ class TunnelflightSensor(CoordinatorEntity, SensorEntity):
         self._name = name
         self._entry_id = entry_id
         self._unique_id = f"tunnelflight_{username}"
+        self._attr_translation_key = "tunnelflight"
 
     @property
     def name(self):
@@ -387,7 +388,7 @@ class TunnelflightBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._sensor_type = sensor_type
         self._description = description
         self._icon = icon
-        self._attr_translation_key = sensor_type 
+        self._attr_translation_key = sensor_type
 
         # Log initialization to verify entities are being created
         _LOGGER.debug(f"Creating binary sensor: {self._name} ({self._sensor_type})")
@@ -571,6 +572,7 @@ class TunnelflightDataSensor(CoordinatorEntity, SensorEntity):
         self._sensor_type = sensor_type
         self._description = description
         self._icon = icon
+        self._attr_translation_key = sensor_type
 
     @property
     def name(self):
@@ -714,6 +716,7 @@ class TunnelflightSkillSensor(CoordinatorEntity, SensorEntity):
         self._skill_type = skill_type
         self._description = description
         self._icon = icon
+        self._attr_translation_key = skill_type
 
     @property
     def name(self):
@@ -873,6 +876,7 @@ class TunnelflightSkillsCategorySensor(CoordinatorEntity, SensorEntity):
         )
         self._category_name = category_name
         self._skills_data = skills_data
+        self._attr_translation_key = "tunnelflight_skills"
 
     @property
     def name(self):
