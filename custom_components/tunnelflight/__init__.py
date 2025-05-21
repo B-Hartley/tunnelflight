@@ -1,10 +1,7 @@
 import logging
-import asyncio
 from homeassistant.helpers import config_validation as cv
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_NAME
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 from .logbook_service import async_setup_services, async_unload_services
@@ -29,13 +26,10 @@ async def async_setup(hass, config):
         try:
             await async_setup_services(hass)
             SERVICES_REGISTERED = True
-        except Exception as e:
-            _LOGGER.error(
-                f"Error setting up Tunnelflight services during async_setup: {e}"
+        except Exception:
+            _LOGGER.exception(
+                "Error setting up Tunnelflight services during async_setup"
             )
-            import traceback
-
-            _LOGGER.error(f"Traceback: {traceback.format_exc()}")
 
     return True
 
@@ -53,12 +47,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             await async_setup_services(hass)
             SERVICES_REGISTERED = True
-        except Exception as e:
-            _LOGGER.error(f"Error setting up Tunnelflight services: {e}")
-            # Add this to get a full traceback
-            import traceback
-
-            _LOGGER.error(f"Traceback: {traceback.format_exc()}")
+        except Exception:
+            _LOGGER.exception("Error setting up Tunnelflight services")
 
     _LOGGER.debug(
         f"Tunnelflight entry setup complete for {entry.data.get('username', 'unknown')}"
