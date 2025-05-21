@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -17,13 +17,13 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
 )
 
-from .const import DOMAIN, DEFAULT_NAME
+from .const import DOMAIN, DEFAULT_NAME, DEFAULT_SCAN_INTERVAL
 from .api import TunnelflightApi
 from .service_fix import register_coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-SCAN_INTERVAL = timedelta(hours=6)  # Update every 6 hours
+SCAN_INTERVAL = DEFAULT_SCAN_INTERVAL  # Update interval
 
 
 async def async_setup_entry(

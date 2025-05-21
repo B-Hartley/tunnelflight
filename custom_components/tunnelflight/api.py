@@ -139,6 +139,16 @@ class TunnelflightApi:
             _LOGGER.error(f"Error during login request: {e}")
             return False
 
+    @staticmethod
+    def _is_login_page_content(text: str) -> bool:
+        """Return True if the given text appears to be a login page."""
+        lowered = text.lower()
+        return (
+            "<html" in lowered
+            and ("login" in lowered or "sign in" in lowered)
+            and ("password" in lowered or "username" in lowered or "<form" in lowered)
+        )
+
     async def _fetch_api_endpoint(self, endpoint, use_etag=True):
         """Fetch data from an API endpoint with ETag support."""
         # Ensure we have a valid token
@@ -183,11 +193,9 @@ class TunnelflightApi:
                     # Get a small sample of the content to confirm it's a login page
                     content_sample = await response.content.read(2000)  # Read first 2000 bytes
                     content_sample_str = content_sample.decode('utf-8', errors='ignore')
-                    
+
                     # Check if it contains login form indicators
-                    if '<title>' in content_sample_str and ('login' in content_sample_str.lower() or 
-                                                            'sign in' in content_sample_str.lower() or
-                                                            'password' in content_sample_str.lower()):
+                    if self._is_login_page_content(content_sample_str):
                         _LOGGER.info("Detected login page in response, refreshing token")
                         # Clear the token and login again
                         self._token = None
@@ -216,10 +224,8 @@ class TunnelflightApi:
                     # Sample the content to check if it's a login page
                     content_sample = await response.content.read(2000)
                     content_sample_str = content_sample.decode('utf-8', errors='ignore')
-                    
-                    if ('<form' in content_sample_str.lower() and 
-                        ('login' in content_sample_str.lower() or 'username' in content_sample_str.lower() or
-                         'password' in content_sample_str.lower())):
+
+                    if self._is_login_page_content(content_sample_str):
                         _LOGGER.info("Detected login page in 200 response, refreshing token")
                         # Clear the token and login again
                         self._token = None
@@ -240,11 +246,9 @@ class TunnelflightApi:
                     # Get the content to check if it's an HTML login page
                     try:
                         content = await response.text()
-                        
+
                         # Check if it's an HTML login page
-                        if content and '<html' in content.lower() and ('login' in content.lower() or 
-                                                                     'sign in' in content.lower() or
-                                                                     'password' in content.lower()):
+                        if content and self._is_login_page_content(content):
                             _LOGGER.info("Received login page instead of JSON, refreshing token")
                             self._token = None  # Clear the token
                             success = await self.login()
@@ -334,10 +338,8 @@ class TunnelflightApi:
                     # Sample the content to check if it's a login page
                     content_sample = await response.content.read(2000)
                     content_sample_str = content_sample.decode('utf-8', errors='ignore')
-                    
-                    if ('<form' in content_sample_str.lower() and 
-                        ('login' in content_sample_str.lower() or 'username' in content_sample_str.lower() or
-                         'password' in content_sample_str.lower())):
+
+                    if self._is_login_page_content(content_sample_str):
                         _LOGGER.info("Detected login page in POST response, refreshing token")
                         self._token = None
                         success = await self.login()
@@ -361,11 +363,9 @@ class TunnelflightApi:
                     
                     try:
                         content = await response.text()
-                        
+
                         # Check if it's an HTML login page
-                        if content and '<html' in content.lower() and ('login' in content.lower() or 
-                                                                      'sign in' in content.lower() or
-                                                                      'password' in content.lower()):
+                        if content and self._is_login_page_content(content):
                             _LOGGER.info("Received login page instead of JSON after POST, refreshing token")
                             self._token = None  # Clear the token
                             success = await self.login()

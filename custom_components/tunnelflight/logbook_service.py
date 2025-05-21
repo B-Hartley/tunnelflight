@@ -281,7 +281,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             )
 
     async def find_tunnels(call: ServiceCall) -> None:
-        """Service to find tunnels by name or country."""
+        """Find wind tunnels matching a search term or country."""
         search_term = call.data.get("search_term", "").lower()
         country = call.data.get("country", "").lower()
 
@@ -401,7 +401,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.info("No tunnels found matching criteria")
 
     async def list_countries(call: ServiceCall) -> None:
-        """Service to list all countries with wind tunnels."""
+        """List all countries that have wind tunnels."""
         # For non-user-specific operations like listing countries,
         # it doesn't matter which account we use - just pick the first available one
         api = None
@@ -480,7 +480,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info(f"Listed {len(countries)} countries with tunnels")
 
     async def refresh_data(call: ServiceCall) -> None:
-        """Service to refresh data from the Tunnelflight API."""
+        """Force an immediate refresh of all configured accounts."""
         _LOGGER.info("Manually refreshing Tunnelflight data")
 
         success_count = 0
