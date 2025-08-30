@@ -31,7 +31,7 @@ class TunnelflightApi:
         """Return the authorization header with the token."""
         if not self._token:
             return {}
-        return {"Authorization": f"Bearer {self._token}"}
+        return {"token": self._token}
 
     @property
     def is_token_valid(self):
@@ -50,7 +50,7 @@ class TunnelflightApi:
             _LOGGER.debug("Using existing valid token")
             return True
 
-        login_url = "https://www.tunnelflight.com/login"
+        login_url = "https://api.tunnelflight.com/api/auth/login"
         login_data = {
             "username": self._username,
             "password": self._password,
@@ -109,7 +109,7 @@ class TunnelflightApi:
                         if content and ('success' in content.lower() or 'welcome' in content.lower()):
                             _LOGGER.warning("Login may have succeeded but response is HTML, not JSON")
                             # Make a follow-up request to a protected endpoint to check if we're logged in
-                            check_url = "https://www.tunnelflight.com/user/module-type/flyer-card/"
+                            check_url = "https://api.tunnelflight.com/api/account/profile/user"
                             async with self._session.get(check_url, headers=self._browser_header) as check_response:
                                 # If we get JSON back and not HTML, we're logged in
                                 check_content_type = check_response.headers.get('Content-Type', '')
@@ -271,34 +271,36 @@ class TunnelflightApi:
 
     async def _fetch_skills_levels(self):
         """Fetch the user's skill levels from the skills-levels endpoint."""
-        # First get the member ID from the flyer-card endpoint
-        flyer_card_data = await self._fetch_api_endpoint(
-            "https://www.tunnelflight.com/user/module-type/flyer-card/"
+        # First get the member ID from the profile endpoint
+        profile_data = await self._fetch_api_endpoint(
+            "https://api.tunnelflight.com/api/account/profile/user"
         )
-        if not flyer_card_data or "member_id" not in flyer_card_data:
+        if not profile_data or "member_id" not in profile_data:
             _LOGGER.error("Could not get member ID")
             return None
 
-        member_id = flyer_card_data.get("member_id")
+        member_id = profile_data.get("member_id")
 
         # Now fetch the skills data with the member ID
-        skills_url = f"https://www.tunnelflight.com/account/dashboard/flyer-skills-levels/{member_id}"
+        skills_url = f"https://api.tunnelflight.com/api/account/dashboard/flyer-skills-levels/{member_id}"
         return await self._fetch_api_endpoint(skills_url)
 
     async def get_logbook_entries(self):
         """Get the user's logbook entries containing skills data."""
-        # First get the member ID from the flyer-card endpoint
-        flyer_card_data = await self._fetch_api_endpoint(
-            "https://www.tunnelflight.com/user/module-type/flyer-card/"
+        # First get the member ID from the profile endpoint
+        profile_data = await self._fetch_api_endpoint(
+            "https://api.tunnelflight.com/api/account/profile/user"
         )
-        if not flyer_card_data or "member_id" not in flyer_card_data:
+        if not profile_data or "member_id" not in profile_data:
             _LOGGER.error("Could not get member ID")
             return None
 
-        member_id = flyer_card_data.get("member_id")
+        member_id = profile_data.get("member_id")
 
         # Construct the logbook URL with the member ID
-        logbook_url = f"https://www.tunnelflight.com/account/logbook/member/skills/open-suspended/{member_id}"
+        logbook_url = (
+            f"https://api.tunnelflight.com/api/account/logbook/skills/open-suspended-not_current/{member_id}"
+        )
         return await self._fetch_api_endpoint(logbook_url)
 
     async def _post_api_endpoint(self, endpoint, data):
@@ -416,13 +418,14 @@ class TunnelflightApi:
         
         # Post the logbook entry
         return await self._post_api_endpoint(
-            "https://www.tunnelflight.com/account/logbook/member/time/", log_data
+            "https://api.tunnelflight.com/api/account/logbook/member/time/",
+            log_data,
         )
 
     async def get_tunnels(self):
         """Fetch the list of tunnels from the API."""
         tunnels_data = await self._fetch_api_endpoint(
-            "https://www.tunnelflight.com/account/logbook/tunnels/"
+            "https://api.tunnelflight.com/api/account/logbook/tunnels/"
         )
 
         if not tunnels_data or not isinstance(tunnels_data, list):
@@ -451,7 +454,7 @@ class TunnelflightApi:
         return tunnels
 
     async def get_user_data(self):
-        """Get user data from both API endpoints and combine them."""
+        """Get user data from the profile API and related endpoints."""
         # If token is invalid, try to login first
         if not self.is_token_valid:
             login_success = await self.login()
@@ -459,15 +462,12 @@ class TunnelflightApi:
                 _LOGGER.error("Login failed, cannot fetch user data")
                 return None
 
-        flyer_card_data = await self._fetch_api_endpoint(
-            "https://www.tunnelflight.com/user/module-type/flyer-card/"
-        )
-        flyer_charts_data = await self._fetch_api_endpoint(
-            "https://www.tunnelflight.com/user/module-type/flyer-charts/"
+        profile_data = await self._fetch_api_endpoint(
+            "https://api.tunnelflight.com/api/account/profile/user"
         )
 
-        if not flyer_card_data:
-            _LOGGER.error("Failed to fetch flyer card data")
+        if not profile_data:
+            _LOGGER.error("Failed to fetch profile data")
             return None
 
         # Fetch the skills levels data
@@ -479,16 +479,9 @@ class TunnelflightApi:
         # Combine all the data
         user_data = {}
 
-        # Start with flyer_card_data as the base
-        if flyer_card_data:
-            user_data.update(flyer_card_data)
-
-        # Add any additional data from flyer_charts
-        if flyer_charts_data:
-            # Only add keys that don't already exist or have None values
-            for key, value in flyer_charts_data.items():
-                if key not in user_data or user_data[key] is None:
-                    user_data[key] = value
+        # Start with profile data as the base
+        if profile_data:
+            user_data.update(profile_data)
 
         # Process and enrich the combined data
         if user_data:
