@@ -1,8 +1,11 @@
 import logging
-from homeassistant.helpers import config_validation as cv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api import TunnelflightApi
 from .const import DOMAIN
 from .logbook_service import async_setup_services, async_unload_services
 
@@ -36,7 +39,21 @@ async def async_setup(hass, config):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up IBA Tunnelflight from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
+
+    session = async_get_clientsession(hass)
+    api = TunnelflightApi(
+        entry.data.get("username"), entry.data.get("password"), session
+    )
+
+    try:
+        login_success = await api.login()
+    except Exception as err:
+        raise ConfigEntryNotReady("Unable to connect to Tunnelflight API") from err
+
+    if not login_success:
+        raise ConfigEntryNotReady("Unable to authenticate with Tunnelflight API")
+
+    hass.data[DOMAIN][entry.entry_id] = {"api": api, **entry.data}
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

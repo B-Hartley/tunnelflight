@@ -36,8 +36,11 @@ async def async_setup_entry(
     password = config[CONF_PASSWORD]
     name = config.get(CONF_NAME, DEFAULT_NAME)
 
-    session = async_get_clientsession(hass)
-    api = TunnelflightApi(username, password, session)
+    stored = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    api = stored.get("api")
+    if not api:
+        session = async_get_clientsession(hass)
+        api = TunnelflightApi(username, password, session)
 
     # Create a data coordinator to handle updates
     coordinator = TunnelflightCoordinator(hass, api)
