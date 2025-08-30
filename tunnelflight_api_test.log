@@ -1,0 +1,11 @@
+2025-08-30 14:25:02	Starting login request
+2025-08-30 14:25:04	Login response: {"status":true,"token":"xxxxxx-hidden-xxxxx","confirmationPending":0,"message":"Login successful","member_id":9999}
+2025-08-30 14:25:04	Requesting https://api.tunnelflight.com/api/user/module-type/flyer-card
+2025-08-30 14:25:04	Error calling https://api.tunnelflight.com/api/user/module-type/flyer-card: The remote server returned an error: (404) Not Found.
+2025-08-30 14:25:04	Requesting https://api.tunnelflight.com/api/user/module-type/flyer-charts
+2025-08-30 14:25:04	Error calling https://api.tunnelflight.com/api/user/module-type/flyer-charts: The remote server returned an error: (404) Not Found.
+2025-08-30 14:25:04	Requesting https://api.tunnelflight.com/api/account/logbook/tunnels
+2025-08-30 14:25:05	Error calling https://api.tunnelflight.com/api/account/logbook/tunnels: The remote server returned an error: (404) Not Found.
+2025-08-30 14:25:05	Requesting https://api.tunnelflight.com/api/account/notifications/requests
+2025-08-30 14:25:07	Response from https://api.tunnelflight.com/api/account/notifications/requests: {"count":0}
+2025-08-30 14:25:07	API test script finished
