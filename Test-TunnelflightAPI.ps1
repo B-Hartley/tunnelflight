@@ -1,4 +1,4 @@
-<#
+<##
 .SYNOPSIS
     Exercises key Tunnelflight API endpoints and logs results.
 
@@ -70,7 +70,6 @@ $endpoints = @(
     @{ Url = "$baseUri/api/account/profile/user";         Description = "Profile" },
     @{ Url = "$baseUri/api/public/skills/";               Description = "Public skills" },
     @{ Url = "$baseUri/api/account/dashboard/flyer-skills-levels/$memberId"; Description = "Flyer skill levels" }
-    @{ Url = "$baseUri/api/account/logbook/skills/open-suspended-not_current/$memberId"; Description = "currency" }	
 )
 
 foreach ($ep in $endpoints) {
