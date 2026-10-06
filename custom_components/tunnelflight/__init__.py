@@ -1,10 +1,13 @@
 import logging
 from homeassistant.helpers import config_validation as cv
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.helpers import aiohttp_client
 
 from .const import DOMAIN
 from .logbook_service import async_setup_services, async_unload_services
+from .api import TunnelflightApi
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +41,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
 
-    # Set up platforms
+    # Verify the remote service is ready before forwarding platform setup.
+    # Home Assistant expects ConfigEntryNotReady to be raised here rather than
+    # from a forwarded sensor platform.
+    session = aiohttp_client.async_get_clientsession(hass)
+    api = TunnelflightApi(
+        entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD], session
+    )
+    try:
+        initial_data = await api.get_user_data()
+    except Exception as err:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        raise ConfigEntryNotReady(
+            f"Unable to connect to Tunnelflight: {err}"
+        ) from err
+
+    if not initial_data:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        raise ConfigEntryNotReady("Tunnelflight returned no user data")
+
+    # Set up platforms only after the API has been confirmed available.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Only set up services once - use global flag to track
