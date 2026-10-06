@@ -19,6 +19,7 @@ class TunnelflightApi:
         self._session = session or aiohttp.ClientSession()
         self._token = None
         self._token_expiry = None
+        self._cookies = {}
         self._etags = {}  # Store ETags for different endpoints
 
         # Minimal browser header that should be added to all requests
@@ -29,9 +30,14 @@ class TunnelflightApi:
     @property
     def _auth_header(self):
         """Return the authorization header with the token."""
-        if not self._token:
-            return {}
-        return {"token": self._token}
+        headers = {}
+        if self._token:
+            headers["token"] = self._token
+        if self._cookies:
+            headers["Cookie"] = "; ".join(
+                `${name}=${value}` for name, value in self._cookies.items()
+            )
+        return headers
 
     @property
     def is_token_valid(self):
@@ -79,19 +85,52 @@ class TunnelflightApi:
                     try:
                         response_data = await response.json()
                         
-                        # Check if token exists in the response
-                        if "token" in response_data:
-                            self._token = response_data["token"]
-                            # Set token expiry to 24 hours from now
-                            self._token_expiry = datetime.now() + timedelta(hours=24)
-                            _LOGGER.debug("Login successful - received token")
-                            return True
-                        elif response_data.get("message", "").lower().find("success") >= 0:
-                            _LOGGER.warning(
-                                "Login successful but no token found. Response message: "
-                                f"{response_data.get('message')}"
+                        # Tunnelflight has returned tokens in a few different shapes over time.
+                        token = response_data.get("token") or response_data.get("access_token")
+                        if not token and isinstance(response_data.get("data"), dict):
+                            token = (
+                                response_data["data"].get("token")
+                                or response_data["data"].get("access_token")
                             )
-                            # Even if the message says success but we don't have a token, consider it a failure
+
+                        # Also capture any auth token exposed as a response header.
+                        token = token or response.headers.get("token")
+                        auth_header = response.headers.get("Authorization", "")
+                        if not token and auth_header.lower().startswith("bearer "):
+                            token = auth_header.split(" ", 1)[1]
+
+                        # Home Assistant's shared aiohttp session may not persist cookies,
+                        # so retain Set-Cookie values ourselves for subsequent API calls.
+                        self._cookies = {
+                            name: morsel.value for name, morsel in response.cookies.items()
+                        }
+
+                        if token:
+                            self._token = token
+                            self._token_expiry = datetime.now() + timedelta(hours=24)
+                            _LOGGER.debug("Login successful - received authentication token")
+                            return True
+
+                        if response_data.get("message", "").lower().find("success") >= 0:
+                            # Newer API responses can report success while authenticating by cookie.
+                            # Verify that authentication before declaring login failure.
+                            check_url = "https://api.tunnelflight.com/api/account/profile/user"
+                            headers = {**self._browser_header, **self._auth_header}
+                            async with self._session.get(check_url, headers=headers) as check_response:
+                                if check_response.status in (200, 201, 202):
+                                    try:
+                                        check_data = await check_response.json()
+                                    except Exception:
+                                        check_data = None
+                                    if isinstance(check_data, dict) and check_data.get("member_id"):
+                                        self._token = "session_based_auth"
+                                        self._token_expiry = datetime.now() + timedelta(hours=24)
+                                        _LOGGER.debug("Login successful - verified cookie-based session")
+                                        return True
+
+                            _LOGGER.warning(
+                                "Login reported success but no usable token or session was found"
+                            )
                             return False
                         else:
                             _LOGGER.error(
