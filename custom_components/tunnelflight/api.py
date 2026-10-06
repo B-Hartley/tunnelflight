@@ -35,7 +35,7 @@ class TunnelflightApi:
             headers["token"] = self._token
         if self._cookies:
             headers["Cookie"] = "; ".join(
-                `${name}=${value}` for name, value in self._cookies.items()
+                f"{name}={value}" for name, value in self._cookies.items()
             )
         return headers
 
